@@ -55,7 +55,7 @@
       left: 0;
       width: 100%;
       height: 100%;
-      background: rgba(13, 14, 18, 0.92);
+      background: rgba(13, 14, 18, 0.95);
       display: flex;
       flex-direction: column;
       justify-content: center;
@@ -78,14 +78,19 @@
       to { transform: rotate(360deg); }
     }
 
+    #loader-text {
+      font-size: 0.95rem;
+      color: #94a3b8;
+    }
+
     #start-btn {
       display: none;
       background: #3b82f6;
       color: #fff;
       border: none;
-      padding: 12px 24px;
+      padding: 12px 28px;
       border-radius: 24px;
-      font-size: 1rem;
+      font-size: 0.95rem;
       font-weight: 600;
       cursor: pointer;
     }
@@ -96,6 +101,9 @@
       max-width: 80%;
       text-align: center;
       display: none;
+      background: rgba(239, 68, 68, 0.1);
+      padding: 8px 16px;
+      border-radius: 8px;
     }
 
     #dock {
@@ -107,7 +115,7 @@
       display: flex;
       align-items: center;
       gap: 10px;
-      background: rgba(20, 24, 33, 0.8);
+      background: rgba(20, 24, 33, 0.85);
       backdrop-filter: blur(16px);
       padding: 8px 16px;
       border-radius: 40px;
@@ -146,27 +154,25 @@
     }
   </style>
 
-  <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
+  <!-- Single Stable Three.js Bundle -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 
   <script type="module">
     import {
       FaceLandmarker,
       FilesetResolver
-    } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.10/wasm";
+    } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.10";
 
-    let faceLandmarker;
-    let video;
+    let faceLandmarker = null;
+    let video = null;
     let scene, camera, renderer;
-    let headGroup, occluderMesh;
-    let glassesContainer;
+    let headGroup, occluderMesh, glassesContainer;
+
     const loaderElem = document.getElementById("loader-overlay");
     const loaderText = document.getElementById("loader-text");
     const startBtn = document.getElementById("start-btn");
     const errorLog = document.getElementById("error-log");
 
-    // Tuned offsets:
-    // offsetY moved slightly upward (-0.03) to align with pupils
-    // offsetZ pulled backward (+0.14) so the frame rests on the nose bridge
     const GLASSES_MODELS = [
       {
         id: "classic",
@@ -231,7 +237,7 @@
       headGroup = new THREE.Group();
       scene.add(headGroup);
 
-      // Occluder: Positioned to clip the temple arms behind the ears without clipping the frame
+      // Depth Occluder positioned to shield arms behind ears
       const headGeo = new THREE.SphereGeometry(0.85, 32, 32);
       headGeo.scale(0.88, 1.15, 1.05);
 
@@ -282,14 +288,14 @@
       const rimThickness = 0.018;
       const eyeSeparation = 0.28;
 
-      // Nose Bridge
+      // Bridge
       const bridgeGeo = new THREE.CylinderGeometry(rimThickness * 0.8, rimThickness * 0.8, eyeSeparation * 0.85, 16);
       bridgeGeo.rotateZ(Math.PI / 2);
       const bridgeMesh = new THREE.Mesh(bridgeGeo, frameMaterial);
       bridgeMesh.position.set(0, 0.02, 0);
       frameGroup.add(bridgeMesh);
 
-      // Left & Right Rims and Lenses
+      // Rims & Lenses
       [-eyeSeparation, eyeSeparation].forEach((xPos) => {
         const rimGeo = new THREE.TorusGeometry(rimRadius, rimThickness, 16, 40);
         const rim = new THREE.Mesh(rimGeo, frameMaterial);
@@ -303,19 +309,17 @@
         frameGroup.add(lens);
       });
 
-      // Temples / Arms with downward tilt toward the ear hinge
+      // Angled temples
       const templeLength = 1.45;
       const templeGeo = new THREE.BoxGeometry(0.016, 0.024, templeLength);
       const templeOffset = eyeSeparation + rimRadius;
 
-      // Left Temple
       const leftTemple = new THREE.Mesh(templeGeo, frameMaterial);
       leftTemple.position.set(-templeOffset, -0.03, -templeLength / 2);
-      leftTemple.rotation.x = -0.06; // Angled down toward ear
+      leftTemple.rotation.x = -0.06;
       leftTemple.rotation.y = 0.04;
       frameGroup.add(leftTemple);
 
-      // Right Temple
       const rightTemple = new THREE.Mesh(templeGeo, frameMaterial);
       rightTemple.position.set(templeOffset, -0.03, -templeLength / 2);
       rightTemple.rotation.x = -0.06;
@@ -330,25 +334,39 @@
 
     async function initMediaPipe() {
       try {
-        loaderText.innerText = "Loading AI models...";
+        loaderText.innerText = "Downloading Face Tracking Models...";
         const fileset = await FilesetResolver.forVisionTasks(
           "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.10/wasm"
         );
 
-        faceLandmarker = await FaceLandmarker.createFromOptions(fileset, {
-          baseOptions: {
-            modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
-            delegate: "GPU"
-          },
-          runningMode: "VIDEO",
-          outputFacialTransformationMatrixes: true,
-          numFaces: 1
-        });
+        // Try GPU first, fall back to CPU if blocked
+        try {
+          faceLandmarker = await FaceLandmarker.createFromOptions(fileset, {
+            baseOptions: {
+              modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
+              delegate: "GPU"
+            },
+            runningMode: "VIDEO",
+            outputFacialTransformationMatrixes: true,
+            numFaces: 1
+          });
+        } catch (gpuErr) {
+          console.warn("GPU delegate failed, falling back to CPU", gpuErr);
+          faceLandmarker = await FaceLandmarker.createFromOptions(fileset, {
+            baseOptions: {
+              modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
+              delegate: "CPU"
+            },
+            runningMode: "VIDEO",
+            outputFacialTransformationMatrixes: true,
+            numFaces: 1
+          });
+        }
 
         loaderText.innerText = "Starting Camera...";
         await startCamera();
       } catch (err) {
-        showError("Initialization failed: " + err.message);
+        showError("Initialization error: " + err.message);
       }
     }
 
@@ -365,20 +383,28 @@
         });
 
         video.srcObject = stream;
-        
-        await new Promise((resolve) => {
-          video.onloadedmetadata = () => {
-            video.play().then(resolve).catch(resolve);
-          };
-        });
 
-        loaderElem.style.opacity = "0";
-        setTimeout(() => (loaderElem.style.display = "none"), 400);
+        // Force play without hanging
+        video.onloadeddata = () => {
+          video.play();
+          loaderElem.style.opacity = "0";
+          setTimeout(() => (loaderElem.style.display = "none"), 400);
+          requestAnimationFrame(renderLoop);
+        };
 
-        requestAnimationFrame(renderLoop);
+        // Fallback timer if onloadeddata is delayed
+        setTimeout(() => {
+          if (loaderElem.style.display !== "none") {
+            video.play();
+            loaderElem.style.opacity = "0";
+            setTimeout(() => (loaderElem.style.display = "none"), 400);
+            requestAnimationFrame(renderLoop);
+          }
+        }, 1500);
+
       } catch (err) {
         document.querySelector(".spinner").style.display = "none";
-        loaderText.innerText = "Camera permission needed";
+        loaderText.innerText = "Click below to grant camera access:";
         startBtn.style.display = "block";
         startBtn.onclick = async () => {
           startBtn.style.display = "none";
@@ -400,7 +426,7 @@
     const mirrorMatrix = new THREE.Matrix4().makeScale(-1, 1, 1);
 
     function renderLoop() {
-      if (video.readyState >= 2 && video.currentTime !== lastVideoTime) {
+      if (video && video.readyState >= 2 && video.currentTime !== lastVideoTime) {
         lastVideoTime = video.currentTime;
         const results = faceLandmarker.detectForVideo(video, performance.now());
 
