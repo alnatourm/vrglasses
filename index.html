@@ -147,7 +147,7 @@
     import {
       FaceLandmarker,
       FilesetResolver
-    } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.10";
+    } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.10/wasm";
 
     let faceLandmarker;
     let video;
@@ -156,7 +156,7 @@
     let glassesContainer;
     const loaderElem = document.getElementById("loader-overlay");
 
-    // Calibrated model offsets (offsetY lifted to match eye level)
+    // Exact placement: Z-forward sitting on nose bridge, Y lowered directly over eyes
     const GLASSES_MODELS = [
       {
         id: "classic-wayfarer",
@@ -164,9 +164,9 @@
         frameColor: 0x18181b,
         lensColor: 0x0f172a,
         roughness: 0.2,
-        scale: 1.0,
-        offsetY: 0.38,   // Lifted from 0.05 to place directly across pupils
-        offsetZ: 0.22
+        scale: 0.85,
+        offsetY: -0.15,   // Shifted down directly over pupils
+        offsetZ: 0.40     // Shifted forward clear of the occluder mesh
       },
       {
         id: "aviator-gold",
@@ -174,9 +174,9 @@
         frameColor: 0xd4af37,
         lensColor: 0x142b1e,
         roughness: 0.08,
-        scale: 1.04,
-        offsetY: 0.36,   // Adjusted height
-        offsetZ: 0.24
+        scale: 0.88,
+        offsetY: -0.16,
+        offsetZ: 0.42
       },
       {
         id: "tortoise-round",
@@ -184,9 +184,9 @@
         frameColor: 0x6e3b15,
         lensColor: 0x3d200e,
         roughness: 0.25,
-        scale: 0.98,
-        offsetY: 0.39,   // Adjusted height
-        offsetZ: 0.22
+        scale: 0.82,
+        offsetY: -0.14,
+        offsetZ: 0.40
       }
     ];
 
@@ -226,9 +226,9 @@
       headGroup = new THREE.Group();
       scene.add(headGroup);
 
-      // Occluder mesh (clipped behind ears and hair)
-      const headGeo = new THREE.SphereGeometry(1.0, 32, 32);
-      headGeo.scale(0.85, 1.15, 1.05);
+      // Occluder pushed back behind the face so it never clips the nose bridge or front lenses
+      const headGeo = new THREE.SphereGeometry(0.9, 32, 32);
+      headGeo.scale(0.85, 1.1, 1.0);
 
       const occluderMat = new THREE.MeshStandardMaterial({
         colorWrite: false,
@@ -236,7 +236,7 @@
       });
 
       occluderMesh = new THREE.Mesh(headGeo, occluderMat);
-      occluderMesh.position.set(0, 0.1, -0.75); // Re-centered with eye level
+      occluderMesh.position.set(0, -0.2, -1.1); // Pushed further back (-1.1) to avoid face clipping
       occluderMesh.renderOrder = 0;
       headGroup.add(occluderMesh);
 
@@ -265,53 +265,52 @@
         color: config.lensColor,
         metalness: 0.0,
         roughness: 0.05,
-        transmission: 0.82,
-        thickness: 0.2,
+        transmission: 0.85,
+        thickness: 0.1,
         ior: 1.5,
         transparent: true,
-        opacity: 0.78,
+        opacity: 0.75,
         depthWrite: false
       });
 
-      // Anatomically calibrated eyewear dimensions
-      const rimRadius = 0.20;       // Balanced lens size
-      const rimThickness = 0.018;   // Sleek frame rim
-      const eyeSeparation = 0.31;   // Aligns with standard human interpupillary distance
+      const rimRadius = 0.22;
+      const rimThickness = 0.02;
+      const eyeSeparation = 0.32;
 
-      // Center Bridge
-      const bridgeGeo = new THREE.CylinderGeometry(rimThickness * 0.7, rimThickness * 0.7, eyeSeparation * 0.8, 16);
+      // Solid Nose Bridge
+      const bridgeGeo = new THREE.CylinderGeometry(rimThickness * 0.8, rimThickness * 0.8, eyeSeparation * 0.8, 16);
       bridgeGeo.rotateZ(Math.PI / 2);
       const bridgeMesh = new THREE.Mesh(bridgeGeo, frameMaterial);
-      bridgeMesh.position.set(0, 0.03, 0);
+      bridgeMesh.position.set(0, 0.02, 0);
       frameGroup.add(bridgeMesh);
 
-      // Lens and Rims
+      // Lenses & Rims
       [-eyeSeparation, eyeSeparation].forEach((xPos) => {
         const rimGeo = new THREE.TorusGeometry(rimRadius, rimThickness, 16, 40);
         const rim = new THREE.Mesh(rimGeo, frameMaterial);
         rim.position.set(xPos, 0, 0);
         frameGroup.add(rim);
 
-        const lensGeo = new THREE.CylinderGeometry(rimRadius - 0.004, rimRadius - 0.004, 0.01, 32);
+        const lensGeo = new THREE.CylinderGeometry(rimRadius - 0.003, rimRadius - 0.003, 0.01, 32);
         lensGeo.rotateX(Math.PI / 2);
         const lens = new THREE.Mesh(lensGeo, lensMaterial);
         lens.position.set(xPos, 0, 0);
         frameGroup.add(lens);
       });
 
-      // Temples / Arms (reaches back into occluder mesh)
-      const templeLength = 1.35;
-      const templeGeo = new THREE.BoxGeometry(0.016, 0.026, templeLength);
+      // Temples / Arms extending back into the occluder
+      const templeLength = 1.6;
+      const templeGeo = new THREE.BoxGeometry(0.018, 0.03, templeLength);
       const templeOffset = eyeSeparation + rimRadius;
 
       const leftTemple = new THREE.Mesh(templeGeo, frameMaterial);
       leftTemple.position.set(-templeOffset, 0.015, -templeLength / 2);
-      leftTemple.rotation.y = 0.04;
+      leftTemple.rotation.y = 0.03;
       frameGroup.add(leftTemple);
 
       const rightTemple = new THREE.Mesh(templeGeo, frameMaterial);
       rightTemple.position.set(templeOffset, 0.015, -templeLength / 2);
-      rightTemple.rotation.y = -0.04;
+      rightTemple.rotation.y = -0.03;
       frameGroup.add(rightTemple);
 
       frameGroup.scale.setScalar(config.scale);
