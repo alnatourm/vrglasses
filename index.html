@@ -30,7 +30,6 @@
       align-items: center;
     }
 
-    /* Video mirrored horizontally for natural selfie view */
     #webcam {
       position: absolute;
       top: 0;
@@ -42,7 +41,6 @@
       z-index: 1;
     }
 
-    /* Three.js canvas placed directly over the video stream */
     #three-canvas {
       position: absolute;
       top: 0;
@@ -53,7 +51,6 @@
       pointer-events: none;
     }
 
-    /* Loading overlay */
     #loader-overlay {
       position: absolute;
       top: 0;
@@ -84,7 +81,6 @@
       to { transform: rotate(360deg); }
     }
 
-    /* Bottom Control Dock */
     #dock {
       position: absolute;
       bottom: 28px;
@@ -145,10 +141,8 @@
     }
   </style>
 
-  <!-- Three.js Dependencies -->
   <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
 
-  <!-- Google MediaPipe Tasks Vision -->
   <script type="module">
     import {
       FaceLandmarker,
@@ -162,17 +156,17 @@
     let glassesContainer;
     const loaderElem = document.getElementById("loader-overlay");
 
-    // Calibrated adult frame dimensions (scaled to 0.58–0.62)
+    // Calibrated model offsets (offsetY lifted to match eye level)
     const GLASSES_MODELS = [
       {
         id: "classic-wayfarer",
         name: "Classic Black",
-        frameColor: 0x1a1a1a,
+        frameColor: 0x18181b,
         lensColor: 0x0f172a,
         roughness: 0.2,
-        scale: 0.60,
-        offsetY: 0.05,
-        offsetZ: 0.28
+        scale: 1.0,
+        offsetY: 0.38,   // Lifted from 0.05 to place directly across pupils
+        offsetZ: 0.22
       },
       {
         id: "aviator-gold",
@@ -180,9 +174,9 @@
         frameColor: 0xd4af37,
         lensColor: 0x142b1e,
         roughness: 0.08,
-        scale: 0.62,
-        offsetY: 0.03,
-        offsetZ: 0.30
+        scale: 1.04,
+        offsetY: 0.36,   // Adjusted height
+        offsetZ: 0.24
       },
       {
         id: "tortoise-round",
@@ -190,20 +184,18 @@
         frameColor: 0x6e3b15,
         lensColor: 0x3d200e,
         roughness: 0.25,
-        scale: 0.58,
-        offsetY: 0.06,
-        offsetZ: 0.28
+        scale: 0.98,
+        offsetY: 0.39,   // Adjusted height
+        offsetZ: 0.22
       }
     ];
 
     let currentConfig = GLASSES_MODELS[0];
 
-    // Jitter dampening
     const smoothPos = new THREE.Vector3();
     const smoothQuat = new THREE.Quaternion();
     let firstDetection = true;
 
-    // 1. Initialize Scene & Occluder Mesh
     function initScene() {
       const canvas = document.getElementById("three-canvas");
 
@@ -220,8 +212,7 @@
       renderer.setSize(window.innerWidth, window.innerHeight);
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
-      // Lighting
-      const ambientLight = new THREE.AmbientLight(0xffffff, 1.4);
+      const ambientLight = new THREE.AmbientLight(0xffffff, 1.5);
       scene.add(ambientLight);
 
       const keyLight = new THREE.DirectionalLight(0xffffff, 2.0);
@@ -232,27 +223,23 @@
       fillLight.position.set(-1.5, -1, 1.5);
       scene.add(fillLight);
 
-      // Root 6DoF tracking group
       headGroup = new THREE.Group();
       scene.add(headGroup);
 
-      // -------------------------------------------------------------------
-      // Depth Occluder: Writes to depth buffer to clip temples behind ears
-      // -------------------------------------------------------------------
+      // Occluder mesh (clipped behind ears and hair)
       const headGeo = new THREE.SphereGeometry(1.0, 32, 32);
       headGeo.scale(0.85, 1.15, 1.05);
 
       const occluderMat = new THREE.MeshStandardMaterial({
-        colorWrite: false, // Invisible
-        depthWrite: true   // Masks objects behind it
+        colorWrite: false,
+        depthWrite: true
       });
 
       occluderMesh = new THREE.Mesh(headGeo, occluderMat);
-      occluderMesh.position.set(0, -0.12, -0.75);
+      occluderMesh.position.set(0, 0.1, -0.75); // Re-centered with eye level
       occluderMesh.renderOrder = 0;
       headGroup.add(occluderMesh);
 
-      // Eyewear Container
       glassesContainer = new THREE.Group();
       glassesContainer.renderOrder = 1;
       headGroup.add(glassesContainer);
@@ -261,7 +248,6 @@
       window.addEventListener("resize", onWindowResize);
     }
 
-    // 2. Eyewear Construction with Calibrated Adult Spacing
     function buildEyewear(config) {
       while (glassesContainer.children.length > 0) {
         glassesContainer.remove(glassesContainer.children[0]);
@@ -275,7 +261,6 @@
         metalness: config.id.includes("aviator") ? 0.9 : 0.15
       });
 
-      // Translucent sunglasses material
       const lensMaterial = new THREE.MeshPhysicalMaterial({
         color: config.lensColor,
         metalness: 0.0,
@@ -288,35 +273,35 @@
         depthWrite: false
       });
 
-      // Realistic anatomical proportions
-      const rimRadius = 0.18;
-      const rimThickness = 0.018;
-      const eyeSeparation = 0.24;
+      // Anatomically calibrated eyewear dimensions
+      const rimRadius = 0.20;       // Balanced lens size
+      const rimThickness = 0.018;   // Sleek frame rim
+      const eyeSeparation = 0.31;   // Aligns with standard human interpupillary distance
 
-      // Nose Bridge
-      const bridgeGeo = new THREE.CylinderGeometry(rimThickness * 0.7, rimThickness * 0.7, eyeSeparation, 16);
+      // Center Bridge
+      const bridgeGeo = new THREE.CylinderGeometry(rimThickness * 0.7, rimThickness * 0.7, eyeSeparation * 0.8, 16);
       bridgeGeo.rotateZ(Math.PI / 2);
       const bridgeMesh = new THREE.Mesh(bridgeGeo, frameMaterial);
       bridgeMesh.position.set(0, 0.03, 0);
       frameGroup.add(bridgeMesh);
 
-      // Rims and Lenses
+      // Lens and Rims
       [-eyeSeparation, eyeSeparation].forEach((xPos) => {
         const rimGeo = new THREE.TorusGeometry(rimRadius, rimThickness, 16, 40);
         const rim = new THREE.Mesh(rimGeo, frameMaterial);
         rim.position.set(xPos, 0, 0);
         frameGroup.add(rim);
 
-        const lensGeo = new THREE.CylinderGeometry(rimRadius - 0.005, rimRadius - 0.005, 0.01, 32);
+        const lensGeo = new THREE.CylinderGeometry(rimRadius - 0.004, rimRadius - 0.004, 0.01, 32);
         lensGeo.rotateX(Math.PI / 2);
         const lens = new THREE.Mesh(lensGeo, lensMaterial);
         lens.position.set(xPos, 0, 0);
         frameGroup.add(lens);
       });
 
-      // Frame Temples / Arms (Pass into the occluder mesh)
-      const templeLength = 1.25;
-      const templeGeo = new THREE.BoxGeometry(0.016, 0.028, templeLength);
+      // Temples / Arms (reaches back into occluder mesh)
+      const templeLength = 1.35;
+      const templeGeo = new THREE.BoxGeometry(0.016, 0.026, templeLength);
       const templeOffset = eyeSeparation + rimRadius;
 
       const leftTemple = new THREE.Mesh(templeGeo, frameMaterial);
@@ -335,7 +320,6 @@
       glassesContainer.add(frameGroup);
     }
 
-    // 3. MediaPipe FaceLandmarker
     async function initMediaPipe() {
       const fileset = await FilesetResolver.forVisionTasks(
         "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.10/wasm"
@@ -354,7 +338,6 @@
       await startCamera();
     }
 
-    // 4. Start Front Webcam
     async function startCamera() {
       video = document.getElementById("webcam");
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -375,7 +358,6 @@
       };
     }
 
-    // 5. Tracking Loop
     let lastVideoTime = -1;
     const rawMatrix = new THREE.Matrix4();
     const mirrorMatrix = new THREE.Matrix4().makeScale(-1, 1, 1);
@@ -428,7 +410,6 @@
       renderer.setSize(window.innerWidth, window.innerHeight);
     }
 
-    // 6. UI Controls & Switcher Dock
     function setupControls() {
       const dock = document.getElementById("dock");
 
