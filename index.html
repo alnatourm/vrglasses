@@ -30,7 +30,7 @@
       align-items: center;
     }
 
-    /* Video flipped horizontally for a natural mirror view */
+    /* Video mirrored horizontally for natural selfie view */
     #webcam {
       position: absolute;
       top: 0;
@@ -93,10 +93,10 @@
       z-index: 10;
       display: flex;
       align-items: center;
-      gap: 16px;
+      gap: 12px;
       background: rgba(20, 24, 33, 0.75);
       backdrop-filter: blur(16px);
-      padding: 10px 18px;
+      padding: 8px 16px;
       border-radius: 40px;
       border: 1px solid rgba(255, 255, 255, 0.12);
       box-shadow: 0 16px 32px rgba(0, 0, 0, 0.45);
@@ -106,12 +106,12 @@
       background: rgba(255, 255, 255, 0.08);
       border: 1px solid rgba(255, 255, 255, 0.15);
       color: #fff;
-      font-size: 0.85rem;
+      font-size: 0.82rem;
       font-weight: 500;
-      padding: 9px 18px;
+      padding: 8px 16px;
       border-radius: 20px;
       cursor: pointer;
-      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      transition: all 0.2s ease;
     }
 
     .selector-btn:hover {
@@ -128,14 +128,14 @@
       background: #10b981;
       border: none;
       color: #fff;
-      width: 40px;
-      height: 40px;
+      width: 38px;
+      height: 38px;
       border-radius: 50%;
       cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
-      margin-left: 6px;
+      margin-left: 4px;
       transition: transform 0.2s ease, background-color 0.2s ease;
     }
 
@@ -145,9 +145,8 @@
     }
   </style>
 
-  <!-- Three.js and GLTFLoader Dependencies -->
+  <!-- Three.js Dependencies -->
   <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
-  <script src="https://unpkg.com/three@0.160.0/examples/js/loaders/GLTFLoader.js"></script>
 
   <!-- Google MediaPipe Tasks Vision -->
   <script type="module">
@@ -156,7 +155,6 @@
       FilesetResolver
     } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.10";
 
-    // Application state
     let faceLandmarker;
     let video;
     let scene, camera, renderer;
@@ -164,57 +162,49 @@
     let glassesContainer;
     const loaderElem = document.getElementById("loader-overlay");
 
-    // Catalog configuration
+    // Calibrated adult frame dimensions (scaled to 0.58–0.62)
     const GLASSES_MODELS = [
       {
         id: "classic-wayfarer",
-        name: "Wayfarer Black",
-        type: "procedural", // Procedural fallback model ready without external assets
-        frameColor: 0x111111,
-        lensColor: 0x15222e,
-        roughness: 0.15,
-        transmission: 0.88,
-        scale: 1.0,
-        offsetY: 0.0,
-        offsetZ: 0.35
+        name: "Classic Black",
+        frameColor: 0x1a1a1a,
+        lensColor: 0x0f172a,
+        roughness: 0.2,
+        scale: 0.60,
+        offsetY: 0.05,
+        offsetZ: 0.28
       },
       {
         id: "aviator-gold",
         name: "Aviator Gold",
-        type: "procedural",
         frameColor: 0xd4af37,
-        lensColor: 0x223820,
-        roughness: 0.05,
-        transmission: 0.85,
-        scale: 1.04,
-        offsetY: -0.05,
-        offsetZ: 0.38
+        lensColor: 0x142b1e,
+        roughness: 0.08,
+        scale: 0.62,
+        offsetY: 0.03,
+        offsetZ: 0.30
       },
       {
         id: "tortoise-round",
         name: "Amber Round",
-        type: "procedural",
-        frameColor: 0x7c3f1d,
-        lensColor: 0x3d2714,
-        roughness: 0.3,
-        transmission: 0.90,
-        scale: 0.96,
-        offsetY: 0.02,
-        offsetZ: 0.35
+        frameColor: 0x6e3b15,
+        lensColor: 0x3d200e,
+        roughness: 0.25,
+        scale: 0.58,
+        offsetY: 0.06,
+        offsetZ: 0.28
       }
     ];
 
     let currentConfig = GLASSES_MODELS[0];
 
-    // Smoothing vectors for jitter-free tracking
+    // Jitter dampening
     const smoothPos = new THREE.Vector3();
     const smoothQuat = new THREE.Quaternion();
-    const smoothScale = new THREE.Vector3(1, 1, 1);
     let firstDetection = true;
 
-    // 1. Initialize Scene & Depth Occluder
+    // 1. Initialize Scene & Occluder Mesh
     function initScene() {
-      const container = document.getElementById("viewport");
       const canvas = document.getElementById("three-canvas");
 
       scene = new THREE.Scene();
@@ -229,43 +219,40 @@
       });
       renderer.setSize(window.innerWidth, window.innerHeight);
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-      renderer.toneMapping = THREE.ACESFilmicToneMapping;
 
-      // Studio Lighting
-      const ambientLight = new THREE.AmbientLight(0xffffff, 1.3);
+      // Lighting
+      const ambientLight = new THREE.AmbientLight(0xffffff, 1.4);
       scene.add(ambientLight);
 
-      const keyLight = new THREE.DirectionalLight(0xffffff, 2.2);
-      keyLight.position.set(2, 4, 3);
+      const keyLight = new THREE.DirectionalLight(0xffffff, 2.0);
+      keyLight.position.set(1.5, 3, 2.5);
       scene.add(keyLight);
 
-      const fillLight = new THREE.DirectionalLight(0xdbeafe, 1.2);
-      fillLight.position.set(-2, -1, 2);
+      const fillLight = new THREE.DirectionalLight(0xdbeafe, 1.0);
+      fillLight.position.set(-1.5, -1, 1.5);
       scene.add(fillLight);
 
-      // Root group driven by facial 6DoF transformation
+      // Root 6DoF tracking group
       headGroup = new THREE.Group();
       scene.add(headGroup);
 
-      // -------------------------------------------------------------
-      // Invisible 3D Head Occluder
-      // Writes exclusively to the GPU depth buffer (Z-buffer)
-      // Any 3D geometry placed behind this volume will be naturally clipped
-      // -------------------------------------------------------------
-      const headGeo = new THREE.SphereGeometry(1.0, 36, 36);
-      headGeo.scale(0.88, 1.15, 1.05); // Standard anthropometric ratio
+      // -------------------------------------------------------------------
+      // Depth Occluder: Writes to depth buffer to clip temples behind ears
+      // -------------------------------------------------------------------
+      const headGeo = new THREE.SphereGeometry(1.0, 32, 32);
+      headGeo.scale(0.85, 1.15, 1.05);
 
       const occluderMat = new THREE.MeshStandardMaterial({
-        colorWrite: false, // Don't draw pixels to the screen
-        depthWrite: true   // Force occluder boundary into depth buffer
+        colorWrite: false, // Invisible
+        depthWrite: true   // Masks objects behind it
       });
 
       occluderMesh = new THREE.Mesh(headGeo, occluderMat);
-      occluderMesh.position.set(0, -0.15, -0.75); // Centered into the skull relative to nose bridge
-      occluderMesh.renderOrder = 0; // Rendered first so depth is registered
+      occluderMesh.position.set(0, -0.12, -0.75);
+      occluderMesh.renderOrder = 0;
       headGroup.add(occluderMesh);
 
-      // Eyewear Attachment Anchor
+      // Eyewear Container
       glassesContainer = new THREE.Group();
       glassesContainer.renderOrder = 1;
       headGroup.add(glassesContainer);
@@ -274,50 +261,48 @@
       window.addEventListener("resize", onWindowResize);
     }
 
-    // 2. Eyewear Construction (PBR Metal/Acetate & Physical Glass)
+    // 2. Eyewear Construction with Calibrated Adult Spacing
     function buildEyewear(config) {
       while (glassesContainer.children.length > 0) {
-        const obj = glassesContainer.children[0];
-        glassesContainer.remove(obj);
+        glassesContainer.remove(glassesContainer.children[0]);
       }
 
       const frameGroup = new THREE.Group();
 
-      // Materials
       const frameMaterial = new THREE.MeshStandardMaterial({
         color: config.frameColor,
         roughness: config.roughness,
-        metalness: config.id.includes("aviator") ? 0.9 : 0.1,
-        clearcoat: 0.6,
-        clearcoatRoughness: 0.1
+        metalness: config.id.includes("aviator") ? 0.9 : 0.15
       });
 
+      // Translucent sunglasses material
       const lensMaterial = new THREE.MeshPhysicalMaterial({
         color: config.lensColor,
         metalness: 0.0,
         roughness: 0.05,
-        transmission: config.transmission,
-        ior: 1.52,
+        transmission: 0.82,
+        thickness: 0.2,
+        ior: 1.5,
         transparent: true,
-        opacity: 0.92,
-        reflectivity: 0.6
+        opacity: 0.78,
+        depthWrite: false
       });
 
-      // Rim Dimensions (Centimeters converted to Three.js metric space)
-      const rimRadius = 0.28;
-      const rimThickness = 0.025;
-      const eyeSeparation = 0.38;
+      // Realistic anatomical proportions
+      const rimRadius = 0.18;
+      const rimThickness = 0.018;
+      const eyeSeparation = 0.24;
 
-      // Front Bridge
-      const bridgeGeo = new THREE.CylinderGeometry(rimThickness * 0.8, rimThickness * 0.8, eyeSeparation, 16);
+      // Nose Bridge
+      const bridgeGeo = new THREE.CylinderGeometry(rimThickness * 0.7, rimThickness * 0.7, eyeSeparation, 16);
       bridgeGeo.rotateZ(Math.PI / 2);
       const bridgeMesh = new THREE.Mesh(bridgeGeo, frameMaterial);
-      bridgeMesh.position.set(0, 0.04, 0);
+      bridgeMesh.position.set(0, 0.03, 0);
       frameGroup.add(bridgeMesh);
 
-      // Left & Right Rims and Lenses
+      // Rims and Lenses
       [-eyeSeparation, eyeSeparation].forEach((xPos) => {
-        const rimGeo = new THREE.TorusGeometry(rimRadius, rimThickness, 20, 48);
+        const rimGeo = new THREE.TorusGeometry(rimRadius, rimThickness, 16, 40);
         const rim = new THREE.Mesh(rimGeo, frameMaterial);
         rim.position.set(xPos, 0, 0);
         frameGroup.add(rim);
@@ -329,31 +314,28 @@
         frameGroup.add(lens);
       });
 
-      // Left & Right Temples (Arms extending backwards past the ears into the occluder)
-      const templeLength = 1.35;
-      const templeGeo = new THREE.BoxGeometry(0.02, 0.035, templeLength);
+      // Frame Temples / Arms (Pass into the occluder mesh)
+      const templeLength = 1.25;
+      const templeGeo = new THREE.BoxGeometry(0.016, 0.028, templeLength);
       const templeOffset = eyeSeparation + rimRadius;
 
-      // Left Temple
       const leftTemple = new THREE.Mesh(templeGeo, frameMaterial);
-      leftTemple.position.set(-templeOffset, 0.02, -templeLength / 2);
-      leftTemple.rotation.y = 0.05; // Slight taper toward the back of the head
+      leftTemple.position.set(-templeOffset, 0.015, -templeLength / 2);
+      leftTemple.rotation.y = 0.04;
       frameGroup.add(leftTemple);
 
-      // Right Temple
       const rightTemple = new THREE.Mesh(templeGeo, frameMaterial);
-      rightTemple.position.set(templeOffset, 0.02, -templeLength / 2);
-      rightTemple.rotation.y = -0.05;
+      rightTemple.position.set(templeOffset, 0.015, -templeLength / 2);
+      rightTemple.rotation.y = -0.04;
       frameGroup.add(rightTemple);
 
-      // Apply initial scaling and offsets
       frameGroup.scale.setScalar(config.scale);
       frameGroup.position.set(0, config.offsetY, config.offsetZ);
 
       glassesContainer.add(frameGroup);
     }
 
-    // 3. MediaPipe FaceLandmarker Initialization
+    // 3. MediaPipe FaceLandmarker
     async function initMediaPipe() {
       const fileset = await FilesetResolver.forVisionTasks(
         "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.10/wasm"
@@ -393,10 +375,10 @@
       };
     }
 
-    // 5. 6DoF Pose & Real-Time Tracking Loop
+    // 5. Tracking Loop
     let lastVideoTime = -1;
     const rawMatrix = new THREE.Matrix4();
-    const mirrorMatrix = new THREE.Matrix4().makeScale(-1, 1, 1); // Aligns mirrored video feed
+    const mirrorMatrix = new THREE.Matrix4().makeScale(-1, 1, 1);
 
     function renderLoop() {
       if (video.readyState >= 2 && video.currentTime !== lastVideoTime) {
@@ -407,8 +389,6 @@
           const matrixData = results.facialTransformationMatrixes[0].data;
           rawMatrix.fromArray(matrixData);
 
-          // Convert MediaPipe matrix format (Right-Handed Metric) to Three.js coordinates
-          // Invert vertical axes and mirror X to align with the flipped selfie camera
           const targetMatrix = new THREE.Matrix4();
           targetMatrix.copy(rawMatrix);
           targetMatrix.multiplyMatrices(mirrorMatrix, targetMatrix);
@@ -418,26 +398,21 @@
           const scale = new THREE.Vector3();
           targetMatrix.decompose(pos, quat, scale);
 
-          // Scale centimeters to 3D world space
           pos.multiplyScalar(0.08);
 
-          // Smooth transformations using Lerp/Slerp to absorb webcam frame-rate jitter
           if (firstDetection) {
             smoothPos.copy(pos);
             smoothQuat.copy(quat);
-            smoothScale.copy(scale);
             firstDetection = false;
           } else {
-            smoothPos.lerp(pos, 0.4);
-            smoothQuat.slerp(quat, 0.4);
-            smoothScale.lerp(scale, 0.4);
+            smoothPos.lerp(pos, 0.45);
+            smoothQuat.slerp(quat, 0.45);
           }
 
           headGroup.position.copy(smoothPos);
           headGroup.quaternion.copy(smoothQuat);
           headGroup.visible = true;
         } else {
-          // If face is temporarily obscured, conceal the eyewear
           headGroup.visible = false;
           firstDetection = true;
         }
@@ -457,7 +432,6 @@
     function setupControls() {
       const dock = document.getElementById("dock");
 
-      // Generate buttons dynamically
       GLASSES_MODELS.forEach((model, index) => {
         const btn = document.createElement("button");
         btn.className = `selector-btn ${index === 0 ? "active" : ""}`;
@@ -471,25 +445,21 @@
         dock.insertBefore(btn, dock.lastElementChild);
       });
 
-      // Snapshot Compositing (Combines mirrored webcam frame + 3D Three.js canvas)
       document.getElementById("snapshot").onclick = () => {
         const snapCanvas = document.createElement("canvas");
         snapCanvas.width = video.videoWidth;
         snapCanvas.height = video.videoHeight;
         const ctx = snapCanvas.getContext("2d");
 
-        // 1. Draw mirrored video
         ctx.save();
         ctx.translate(snapCanvas.width, 0);
         ctx.scale(-1, 1);
         ctx.drawImage(video, 0, 0, snapCanvas.width, snapCanvas.height);
         ctx.restore();
 
-        // 2. Draw 3D overlay
         const threeCanvas = document.getElementById("three-canvas");
         ctx.drawImage(threeCanvas, 0, 0, snapCanvas.width, snapCanvas.height);
 
-        // 3. Trigger PNG download
         const link = document.createElement("a");
         link.download = `tryon-${Date.now()}.png`;
         link.href = snapCanvas.toDataURL("image/png");
@@ -507,7 +477,7 @@
 <body>
   <div id="loader-overlay">
     <div class="spinner"></div>
-    <p>Calibrating 3D Camera & Head Occlusion Mesh...</p>
+    <p>Calibrating 3D Camera & Head Mesh...</p>
   </div>
 
   <div id="viewport">
@@ -515,7 +485,6 @@
     <canvas id="three-canvas"></canvas>
 
     <nav id="dock">
-      <!-- Buttons dynamically populated here -->
       <button class="snapshot-btn" id="snapshot" title="Save Snapshot">
         <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
           <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
