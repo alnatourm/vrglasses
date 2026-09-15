@@ -1,90 +1,420 @@
-function buildEyewear(cfg) {
-  while (glassesContainer.children.length) {
-    glassesContainer.remove(glassesContainer.children[0]);
-  }
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0" />
+  <title>Glasses Try-On</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    html, body {
+      background: #000;
+      color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      overflow: hidden;
+      width: 100%;
+      height: 100%;
+    }
+    #vto-root {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+    }
+    #webcam {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transform: scaleX(-1);
+      z-index: 1;
+    }
+    #three-canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 2;
+      pointer-events: none;
+    }
+    #loader {
+      position: absolute;
+      inset: 0;
+      background: rgba(10, 10, 14, 0.95);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      z-index: 30;
+      gap: 16px;
+      transition: opacity 0.3s ease;
+    }
+    .spinner {
+      width: 44px;
+      height: 44px;
+      border: 4px solid rgba(255, 255, 255, 0.12);
+      border-top-color: #3b82f6;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #loader-text {
+      font-size: 0.95rem;
+      color: #94a3b8;
+    }
+    #dock {
+      position: absolute;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 10;
+      display: flex;
+      gap: 10px;
+      background: rgba(20, 24, 33, 0.85);
+      backdrop-filter: blur(14px);
+      padding: 8px 16px;
+      border-radius: 40px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+    }
+    .btn {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: #fff;
+      font-size: 0.85rem;
+      padding: 8px 16px;
+      border-radius: 20px;
+      cursor: pointer;
+    }
+    .btn.active {
+      background: #3b82f6;
+      border-color: #60a5fa;
+    }
+    .snapshot-btn {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      border: none;
+      background: #10b981;
+      color: #fff;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+  </style>
 
-  const root = new THREE.Group();
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 
-  const frameMat = new THREE.MeshStandardMaterial({
-    color: cfg.frameColor,
-    metalness: cfg.metalness,
-    roughness: cfg.roughness
-  });
+  <script type="module">
+    import {
+      FaceLandmarker,
+      FilesetResolver
+    } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.10";
 
-  const lensMat = new THREE.MeshPhysicalMaterial({
-    color: cfg.lensColor,
-    metalness: 0,
-    roughness: 0.05,
-    transmission: 0.85,
-    transparent: true,
-    opacity: 0.72,
-    depthWrite: false
-  });
+    const CATALOG = [
+      { id: "classic-black", name: "Wayfarer Black", frameColor: 0x18181b, lensColor: 0x0f172a, metalness: 0.1, roughness: 0.2, style: "square" },
+      { id: "aviator-gold", name: "Aviator Gold", frameColor: 0xd4af37, lensColor: 0x142b1e, metalness: 0.85, roughness: 0.08, style: "aviator" },
+      { id: "amber-round", name: "Amber Round", frameColor: 0x7c3f16, lensColor: 0x3d200e, metalness: 0.05, roughness: 0.25, style: "round" }
+    ];
 
-  // Calibrated human anatomical proportions
-  const eyeSep = 0.285;       // Tighter eye separation
-  const rimRadius = 0.185;    // Realistic lens size (centered over pupils)
-  const rimThickness = 0.018; // Sleek modern frame rim
+    let currentConfig = CATALOG[0];
+    let faceLandmarker, video, scene, camera, renderer;
+    let headGroup, occluderMesh, glassesContainer;
+    const loaderElem = document.getElementById("loader");
 
-  // Central Nose Bridge
-  const bridgeGeo = new THREE.CylinderGeometry(rimThickness * 0.7, rimThickness * 0.7, eyeSep * 0.75, 16);
-  bridgeGeo.rotateZ(Math.PI / 2);
-  const bridge = new THREE.Mesh(bridgeGeo, frameMat);
-  bridge.position.set(0, 0.01, 0);
-  root.add(bridge);
+    const smoothPos = new THREE.Vector3();
+    const smoothQuat = new THREE.Quaternion();
+    let isFirst = true;
 
-  if (cfg.style === "aviator") {
-    const topBar = new THREE.Mesh(new THREE.BoxGeometry(eyeSep * 2 + rimRadius, 0.012, 0.014), frameMat);
-    topBar.position.set(0, 0.09, 0);
-    root.add(topBar);
-  }
+    function initThree() {
+      const canvas = document.getElementById("three-canvas");
+      scene = new THREE.Scene();
 
-  [-eyeSep, eyeSep].forEach((x) => {
-    let rimGeo, lensGeo;
+      camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000);
+      camera.position.set(0, 0, 0);
 
-    if (cfg.style === "aviator") {
-      rimGeo = new THREE.TorusGeometry(rimRadius, 0.014, 12, 36);
-      lensGeo = new THREE.CircleGeometry(rimRadius * 0.95, 32);
-    } else if (cfg.style === "square") {
-      rimGeo = new THREE.TorusGeometry(rimRadius, rimThickness, 14, 36);
-      lensGeo = new THREE.CircleGeometry(rimRadius * 0.95, 32);
-    } else {
-      rimGeo = new THREE.TorusGeometry(rimRadius, rimThickness, 16, 40);
-      lensGeo = new THREE.CircleGeometry(rimRadius * 0.95, 36);
+      renderer = new THREE.WebGLRenderer({
+        canvas,
+        alpha: true,
+        antialias: true,
+        preserveDrawingBuffer: true
+      });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+      scene.add(new THREE.AmbientLight(0xffffff, 1.8));
+      const dirLight = new THREE.DirectionalLight(0xffffff, 2.0);
+      dirLight.position.set(1.5, 3, 2.5);
+      scene.add(dirLight);
+
+      headGroup = new THREE.Group();
+      scene.add(headGroup);
+
+      // Occluder: Positioned behind cheeks and ears
+      const occluderGeo = new THREE.BoxGeometry(1.6, 1.8, 0.8);
+      const occluderMat = new THREE.MeshBasicMaterial({
+        colorWrite: false,
+        depthWrite: true
+      });
+      occluderMesh = new THREE.Mesh(occluderGeo, occluderMat);
+      occluderMesh.position.set(0, 0, -0.9);
+      occluderMesh.renderOrder = 0;
+      headGroup.add(occluderMesh);
+
+      glassesContainer = new THREE.Group();
+      glassesContainer.renderOrder = 1;
+      headGroup.add(glassesContainer);
+
+      buildEyewear(currentConfig);
+      window.addEventListener("resize", onResize);
     }
 
-    const rim = new THREE.Mesh(rimGeo, frameMat);
-    if (cfg.style === "aviator") rim.scale.set(1.05, 1.22, 1);
-    if (cfg.style === "square") rim.scale.set(1.15, 0.92, 1);
-    rim.position.set(x, 0, 0);
-    root.add(rim);
+    function onResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
 
-    const lens = new THREE.Mesh(lensGeo, lensMat);
-    if (cfg.style === "aviator") lens.scale.set(1.05, 1.22, 1);
-    if (cfg.style === "square") lens.scale.set(1.15, 0.92, 1);
-    lens.position.set(x, 0, 0.002);
-    root.add(lens);
-  });
+    function buildEyewear(cfg) {
+      while (glassesContainer.children.length) {
+        glassesContainer.remove(glassesContainer.children[0]);
+      }
 
-  // Temples (Arms) mounted at upper-outer corner with natural downward ear slope
-  const armLen = 1.42;
-  const armGeo = new THREE.BoxGeometry(0.014, 0.022, armLen);
-  const armOffsetX = eyeSep + rimRadius;
-  const armOffsetY = 0.035; // Lifted to upper rim hinge
+      const root = new THREE.Group();
 
-  const leftArm = new THREE.Mesh(armGeo, frameMat);
-  leftArm.position.set(-armOffsetX, armOffsetY, -armLen / 2);
-  leftArm.rotation.x = -0.06; // Slopes down to top of ear
-  leftArm.rotation.y = 0.03;
-  root.add(leftArm);
+      const frameMat = new THREE.MeshStandardMaterial({
+        color: cfg.frameColor,
+        metalness: cfg.metalness,
+        roughness: cfg.roughness
+      });
 
-  const rightArm = new THREE.Mesh(armGeo, frameMat);
-  rightArm.position.set(armOffsetX, armOffsetY, -armLen / 2);
-  rightArm.rotation.x = -0.06;
-  rightArm.rotation.y = -0.03;
-  root.add(rightArm);
+      const lensMat = new THREE.MeshPhysicalMaterial({
+        color: cfg.lensColor,
+        metalness: 0,
+        roughness: 0.05,
+        transmission: 0.85,
+        transparent: true,
+        opacity: 0.72,
+        depthWrite: false
+      });
 
-  // Position: Lifted slightly on Y to center directly across your pupils
-  root.position.set(0, 0.025, 0.22);
-  glassesContainer.add(root);
-}
+      // Calibrated anatomical proportions
+      const eyeSep = 0.285;
+      const rimRadius = 0.185;
+      const rimThickness = 0.018;
+
+      // Central Nose Bridge
+      const bridgeGeo = new THREE.CylinderGeometry(rimThickness * 0.7, rimThickness * 0.7, eyeSep * 0.75, 16);
+      bridgeGeo.rotateZ(Math.PI / 2);
+      const bridge = new THREE.Mesh(bridgeGeo, frameMat);
+      bridge.position.set(0, 0.01, 0);
+      root.add(bridge);
+
+      if (cfg.style === "aviator") {
+        const topBar = new THREE.Mesh(new THREE.BoxGeometry(eyeSep * 2 + rimRadius, 0.012, 0.014), frameMat);
+        topBar.position.set(0, 0.09, 0);
+        root.add(topBar);
+      }
+
+      [-eyeSep, eyeSep].forEach((x) => {
+        let rimGeo, lensGeo;
+
+        if (cfg.style === "aviator") {
+          rimGeo = new THREE.TorusGeometry(rimRadius, 0.014, 12, 36);
+          lensGeo = new THREE.CircleGeometry(rimRadius * 0.95, 32);
+        } else if (cfg.style === "square") {
+          rimGeo = new THREE.TorusGeometry(rimRadius, rimThickness, 14, 36);
+          lensGeo = new THREE.CircleGeometry(rimRadius * 0.95, 32);
+        } else {
+          rimGeo = new THREE.TorusGeometry(rimRadius, rimThickness, 16, 40);
+          lensGeo = new THREE.CircleGeometry(rimRadius * 0.95, 36);
+        }
+
+        const rim = new THREE.Mesh(rimGeo, frameMat);
+        if (cfg.style === "aviator") rim.scale.set(1.05, 1.22, 1);
+        if (cfg.style === "square") rim.scale.set(1.15, 0.92, 1);
+        rim.position.set(x, 0, 0);
+        root.add(rim);
+
+        const lens = new THREE.Mesh(lensGeo, lensMat);
+        if (cfg.style === "aviator") lens.scale.set(1.05, 1.22, 1);
+        if (cfg.style === "square") lens.scale.set(1.15, 0.92, 1);
+        lens.position.set(x, 0, 0.002);
+        root.add(lens);
+      });
+
+      // Temples: Extrude back into -Z toward ears, mounted to upper rim hinge
+      const armLen = 1.42;
+      const armGeo = new THREE.BoxGeometry(0.014, 0.022, armLen);
+      const armOffsetX = eyeSep + rimRadius;
+      const armOffsetY = 0.035;
+
+      const leftArm = new THREE.Mesh(armGeo, frameMat);
+      leftArm.position.set(-armOffsetX, armOffsetY, -armLen / 2);
+      leftArm.rotation.x = -0.06;
+      leftArm.rotation.y = 0.03;
+      root.add(leftArm);
+
+      const rightArm = new THREE.Mesh(armGeo, frameMat);
+      rightArm.position.set(armOffsetX, armOffsetY, -armLen / 2);
+      rightArm.rotation.x = -0.06;
+      rightArm.rotation.y = -0.03;
+      root.add(rightArm);
+
+      // Centered across pupils
+      root.position.set(0, 0.025, 0.22);
+      glassesContainer.add(root);
+    }
+
+    async function initMediaPipe() {
+      const fileset = await FilesetResolver.forVisionTasks(
+        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.10/wasm"
+      );
+
+      faceLandmarker = await FaceLandmarker.createFromOptions(fileset, {
+        baseOptions: {
+          modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
+          delegate: "GPU"
+        },
+        runningMode: "VIDEO",
+        outputFacialTransformationMatrixes: true,
+        numFaces: 1
+      });
+
+      await startCamera();
+    }
+
+    async function startCamera() {
+      video = document.getElementById("webcam");
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" },
+        audio: false
+      });
+      video.srcObject = stream;
+      video.onloadeddata = () => {
+        video.play();
+        loaderElem.style.opacity = "0";
+        setTimeout(() => (loaderElem.style.display = "none"), 300);
+        requestAnimationFrame(renderLoop);
+      };
+    }
+
+    let lastVideoTime = -1;
+    const rawMatrix = new THREE.Matrix4();
+    const mirrorMatrix = new THREE.Matrix4().makeScale(-1, 1, 1);
+    const tmpPos = new THREE.Vector3();
+    const tmpQuat = new THREE.Quaternion();
+    const tmpScale = new THREE.Vector3();
+
+    function renderLoop() {
+      if (video && video.readyState >= 2 && video.currentTime !== lastVideoTime) {
+        lastVideoTime = video.currentTime;
+        const results = faceLandmarker.detectForVideo(video, performance.now());
+
+        if (results.facialTransformationMatrixes && results.facialTransformationMatrixes.length > 0) {
+          const matrixData = results.facialTransformationMatrixes[0].data;
+          rawMatrix.fromArray(matrixData);
+
+          const targetMatrix = new THREE.Matrix4();
+          targetMatrix.copy(rawMatrix);
+          targetMatrix.multiplyMatrices(mirrorMatrix, targetMatrix);
+          targetMatrix.decompose(tmpPos, tmpQuat, tmpScale);
+
+          tmpPos.multiplyScalar(0.08);
+
+          if (isFirst) {
+            smoothPos.copy(tmpPos);
+            smoothQuat.copy(tmpQuat);
+            isFirst = false;
+          } else {
+            smoothPos.lerp(tmpPos, 0.45);
+            smoothQuat.slerp(tmpQuat, 0.5);
+          }
+
+          headGroup.position.copy(smoothPos);
+          headGroup.quaternion.copy(smoothQuat);
+          headGroup.visible = true;
+        } else {
+          headGroup.visible = false;
+          isFirst = true;
+        }
+      }
+
+      renderer.render(scene, camera);
+      requestAnimationFrame(renderLoop);
+    }
+
+    function setupControls() {
+      const dock = document.getElementById("dock");
+      CATALOG.forEach((m, i) => {
+        const btn = document.createElement("button");
+        btn.className = `btn ${i === 0 ? "active" : ""}`;
+        btn.innerText = m.name;
+        btn.onclick = () => {
+          document.querySelectorAll(".btn").forEach(b => b.classList.remove("active"));
+          btn.classList.add("active");
+          currentConfig = m;
+          buildEyewear(m);
+        };
+        dock.insertBefore(btn, dock.lastElementChild);
+      });
+
+      document.getElementById("snapshot").onclick = () => {
+        if (!video?.videoWidth) return;
+        const snap = document.createElement("canvas");
+        snap.width = video.videoWidth;
+        snap.height = video.videoHeight;
+        const ctx = snap.getContext("2d");
+
+        ctx.save();
+        ctx.translate(snap.width, 0);
+        ctx.scale(-1, 1);
+        ctx.drawImage(video, 0, 0);
+        ctx.restore();
+
+        const threeCanvas = document.getElementById("three-canvas");
+        ctx.drawImage(threeCanvas, 0, 0, snap.width, snap.height);
+
+        const link = document.createElement("a");
+        link.download = `glasses-${Date.now()}.png`;
+        link.href = snap.toDataURL("image/png");
+        link.click();
+      };
+    }
+
+    window.onload = async () => {
+      initThree();
+      setupControls();
+      await initMediaPipe();
+    };
+  </script>
+</head>
+<body>
+  <div id="vto-root">
+    <div id="loader">
+      <div class="spinner"></div>
+      <p id="loader-text">Loading 3D Optics...</p>
+    </div>
+
+    <video id="webcam" playsinline autoplay muted></video>
+    <canvas id="three-canvas"></canvas>
+
+    <nav id="dock">
+      <button class="snapshot-btn" id="snapshot" title="Save Photo">
+        <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+          <circle cx="12" cy="13" r="4"></circle>
+        </svg>
+      </button>
+    </nav>
+  </div>
+</body>
+</html>
