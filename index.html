@@ -206,21 +206,20 @@
         depthWrite: false
       });
 
-      // Calibrated anatomical proportions
       const eyeSep = 0.285;
       const rimRadius = 0.185;
       const rimThickness = 0.018;
 
-      // Central Nose Bridge
+      // Central Nose Bridge (raised higher on the frame)
       const bridgeGeo = new THREE.CylinderGeometry(rimThickness * 0.7, rimThickness * 0.7, eyeSep * 0.75, 16);
       bridgeGeo.rotateZ(Math.PI / 2);
       const bridge = new THREE.Mesh(bridgeGeo, frameMat);
-      bridge.position.set(0, 0.01, 0);
+      bridge.position.set(0, 0.045, 0);
       root.add(bridge);
 
       if (cfg.style === "aviator") {
         const topBar = new THREE.Mesh(new THREE.BoxGeometry(eyeSep * 2 + rimRadius, 0.012, 0.014), frameMat);
-        topBar.position.set(0, 0.09, 0);
+        topBar.position.set(0, 0.11, 0);
         root.add(topBar);
       }
 
@@ -255,7 +254,7 @@
       const armLen = 1.42;
       const armGeo = new THREE.BoxGeometry(0.014, 0.022, armLen);
       const armOffsetX = eyeSep + rimRadius;
-      const armOffsetY = 0.035;
+      const armOffsetY = 0.045;
 
       const leftArm = new THREE.Mesh(armGeo, frameMat);
       leftArm.position.set(-armOffsetX, armOffsetY, -armLen / 2);
@@ -269,8 +268,8 @@
       rightArm.rotation.y = -0.03;
       root.add(rightArm);
 
-      // Centered across pupils
-      root.position.set(0, 0.025, 0.22);
+      // Lowers frame by ~0.045 units so pupils sit dead-center in the lenses
+      root.position.set(0, -0.02, 0.22);
       glassesContainer.add(root);
     }
 
