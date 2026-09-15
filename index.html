@@ -127,7 +127,7 @@
 
     let currentConfig = CATALOG[0];
     let faceLandmarker, video, scene, camera, renderer;
-    let headGroup, occluderMesh, glassesContainer;
+    let headGroup, occluderGroup, glassesContainer;
     const loaderElem = document.getElementById("loader");
 
     const smoothPos = new THREE.Vector3();
@@ -158,16 +158,35 @@
       headGroup = new THREE.Group();
       scene.add(headGroup);
 
-      // Occluder: Positioned strictly behind cheeks and ears
-      const occluderGeo = new THREE.BoxGeometry(1.6, 1.8, 0.8);
+      // -------------------------------------------------------------
+      // ANATOMICAL DEPTH OCCLUDER
+      // Blocks the far temple arm from rendering through the face/head
+      // -------------------------------------------------------------
+      occluderGroup = new THREE.Group();
+      occluderGroup.renderOrder = 0;
+
       const occluderMat = new THREE.MeshBasicMaterial({
-        colorWrite: false,
-        depthWrite: true
+        colorWrite: false, // Transparent
+        depthWrite: true   // Writes depth to hide arms behind it
       });
-      occluderMesh = new THREE.Mesh(occluderGeo, occluderMat);
-      occluderMesh.position.set(0, 0, -0.9);
-      occluderMesh.renderOrder = 0;
-      headGroup.add(occluderMesh);
+
+      // 1. Head Cranium (Sphere behind the ears and temples)
+      const headCraniumGeo = new THREE.SphereGeometry(0.85, 32, 24);
+      headCraniumGeo.scale(0.88, 1.15, 1.05);
+      const headCranium = new THREE.Mesh(headCraniumGeo, occluderMat);
+      headCranium.position.set(0, -0.05, -0.65);
+      occluderGroup.add(headCranium);
+
+      // 2. Cheek & Nose Occlusion Shield (Curved mask directly behind the bridge)
+      // Placed at Z = -0.08 so the front frame (at Z = 0.22) is completely safe,
+      // but any arm extending backward into -Z gets clipped immediately when rotated.
+      const faceShieldGeo = new THREE.CylinderGeometry(0.72, 0.72, 1.3, 32, 1, false, Math.PI * 0.15, Math.PI * 0.7);
+      const faceShield = new THREE.Mesh(faceShieldGeo, occluderMat);
+      faceShield.rotation.y = Math.PI / 2;
+      faceShield.position.set(0, -0.1, -0.45);
+      occluderGroup.add(faceShield);
+
+      headGroup.add(occluderGroup);
 
       glassesContainer = new THREE.Group();
       glassesContainer.renderOrder = 1;
@@ -250,36 +269,31 @@
         root.add(lens);
       });
 
-      // -------------------------------------------------------------
-      // TEMPLE ARMS: Mounted flush to the extreme outer frame rim.
-      // Offset backwards so they start at Z = 0 and extend to -Z.
-      // -------------------------------------------------------------
+      // Temples: Extrude back into -Z with pivot at the front hinge
       const armLen = 1.45;
       const armWidth = 0.014;
       const armHeight = 0.022;
 
-      // Translate geometry so origin (pivot) is strictly at front tip of arm
       const armGeo = new THREE.BoxGeometry(armWidth, armHeight, armLen);
-      armGeo.translate(0, 0, -armLen / 2); // Pivot is now at the front hinge!
+      armGeo.translate(0, 0, -armLen / 2);
 
-      const armOffsetX = eyeSep + rimRadius + 0.01; // Sits outside the lens rim
-      const armOffsetY = 0.04;                      // Aligns with outer brow hinge
+      const armOffsetX = eyeSep + rimRadius + 0.008;
+      const armOffsetY = 0.04;
 
-      // Left Temple (flares out slightly by +3 deg to wrap around skull)
+      // Left Arm
       const leftArm = new THREE.Mesh(armGeo, frameMat);
       leftArm.position.set(-armOffsetX, armOffsetY, 0);
-      leftArm.rotation.x = -0.05;  // Slopes down towards top of ear
-      leftArm.rotation.y = 0.06;   // Flares outward around cheek
+      leftArm.rotation.x = -0.05;
+      leftArm.rotation.y = 0.06;
       root.add(leftArm);
 
-      // Right Temple
+      // Right Arm
       const rightArm = new THREE.Mesh(armGeo, frameMat);
       rightArm.position.set(armOffsetX, armOffsetY, 0);
       rightArm.rotation.x = -0.05;
       rightArm.rotation.y = -0.06;
       root.add(rightArm);
 
-      // Frame root position
       root.position.set(0, -0.02, 0.22);
       glassesContainer.add(root);
     }
