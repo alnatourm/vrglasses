@@ -127,7 +127,8 @@
 
     let currentConfig = CATALOG[0];
     let faceLandmarker, video, scene, camera, renderer;
-    let headGroup, occluderGroup, glassesContainer;
+    let headGroup, occluderMesh, glassesContainer;
+    let leftArmMesh, rightArmMesh;
     const loaderElem = document.getElementById("loader");
 
     const smoothPos = new THREE.Vector3();
@@ -158,35 +159,19 @@
       headGroup = new THREE.Group();
       scene.add(headGroup);
 
-      // -------------------------------------------------------------
-      // ANATOMICAL DEPTH OCCLUDER
-      // Blocks the far temple arm from rendering through the face/head
-      // -------------------------------------------------------------
-      occluderGroup = new THREE.Group();
-      occluderGroup.renderOrder = 0;
-
+      // Occluder: Perfectly sized head sphere sitting safely behind the front frame plane
+      // Front frames are at Z = 0.22. This occluder starts at Z = -0.15 and goes back,
+      // so it will NEVER clip the front bridge or lenses, but WILL hide the far arm!
+      const occluderGeo = new THREE.SphereGeometry(0.82, 32, 24);
+      occluderGeo.scale(0.85, 1.12, 1.05);
       const occluderMat = new THREE.MeshBasicMaterial({
-        colorWrite: false, // Transparent
-        depthWrite: true   // Writes depth to hide arms behind it
+        colorWrite: false,
+        depthWrite: true
       });
-
-      // 1. Head Cranium (Sphere behind the ears and temples)
-      const headCraniumGeo = new THREE.SphereGeometry(0.85, 32, 24);
-      headCraniumGeo.scale(0.88, 1.15, 1.05);
-      const headCranium = new THREE.Mesh(headCraniumGeo, occluderMat);
-      headCranium.position.set(0, -0.05, -0.65);
-      occluderGroup.add(headCranium);
-
-      // 2. Cheek & Nose Occlusion Shield (Curved mask directly behind the bridge)
-      // Placed at Z = -0.08 so the front frame (at Z = 0.22) is completely safe,
-      // but any arm extending backward into -Z gets clipped immediately when rotated.
-      const faceShieldGeo = new THREE.CylinderGeometry(0.72, 0.72, 1.3, 32, 1, false, Math.PI * 0.15, Math.PI * 0.7);
-      const faceShield = new THREE.Mesh(faceShieldGeo, occluderMat);
-      faceShield.rotation.y = Math.PI / 2;
-      faceShield.position.set(0, -0.1, -0.45);
-      occluderGroup.add(faceShield);
-
-      headGroup.add(occluderGroup);
+      occluderMesh = new THREE.Mesh(occluderGeo, occluderMat);
+      occluderMesh.position.set(0, -0.05, -0.62);
+      occluderMesh.renderOrder = 0;
+      headGroup.add(occluderMesh);
 
       glassesContainer = new THREE.Group();
       glassesContainer.renderOrder = 1;
@@ -230,7 +215,7 @@
       const rimThickness = 0.018;
 
       // Central Nose Bridge
-      const bridgeGeo = new THREE.CylinderGeometry(rimThickness * 0.7, rimThickness * 0.7, eyeSep * 0.75, 16);
+      const bridgeGeo = new THREE.CylinderGeometry(rimThickness * 0.75, rimThickness * 0.75, eyeSep * 0.75, 16);
       bridgeGeo.rotateZ(Math.PI / 2);
       const bridge = new THREE.Mesh(bridgeGeo, frameMat);
       bridge.position.set(0, 0.045, 0);
@@ -269,31 +254,37 @@
         root.add(lens);
       });
 
-      // Temples: Extrude back into -Z with pivot at the front hinge
-      const armLen = 1.45;
+      // -------------------------------------------------------------
+      // TEMPLE ARMS:
+      // 1. Arm length tuned to 1.25 (stops right above the ear canal)
+      // 2. Geometry translated so front hinge is at Z = 0
+      // 3. Widened offset so the arm is strictly outside the lens frame
+      // -------------------------------------------------------------
+      const armLen = 1.25;
       const armWidth = 0.014;
-      const armHeight = 0.022;
+      const armHeight = 0.020;
 
       const armGeo = new THREE.BoxGeometry(armWidth, armHeight, armLen);
-      armGeo.translate(0, 0, -armLen / 2);
+      armGeo.translate(0, 0, -armLen / 2); // Pivot is exactly at the front hinge
 
-      const armOffsetX = eyeSep + rimRadius + 0.008;
-      const armOffsetY = 0.04;
+      const armOffsetX = eyeSep + rimRadius + 0.015; // Placed outside the rim
+      const armOffsetY = 0.045;                      // Upper rim level
 
       // Left Arm
-      const leftArm = new THREE.Mesh(armGeo, frameMat);
-      leftArm.position.set(-armOffsetX, armOffsetY, 0);
-      leftArm.rotation.x = -0.05;
-      leftArm.rotation.y = 0.06;
-      root.add(leftArm);
+      leftArmMesh = new THREE.Mesh(armGeo, frameMat);
+      leftArmMesh.position.set(-armOffsetX, armOffsetY, 0);
+      leftArmMesh.rotation.x = -0.06;
+      leftArmMesh.rotation.y = 0.08; // Flares out around the temple
+      root.add(leftArmMesh);
 
       // Right Arm
-      const rightArm = new THREE.Mesh(armGeo, frameMat);
-      rightArm.position.set(armOffsetX, armOffsetY, 0);
-      rightArm.rotation.x = -0.05;
-      rightArm.rotation.y = -0.06;
-      root.add(rightArm);
+      rightArmMesh = new THREE.Mesh(armGeo, frameMat);
+      rightArmMesh.position.set(armOffsetX, armOffsetY, 0);
+      rightArmMesh.rotation.x = -0.06;
+      rightArmMesh.rotation.y = -0.08;
+      root.add(rightArmMesh);
 
+      // Frame position
       root.position.set(0, -0.02, 0.22);
       glassesContainer.add(root);
     }
@@ -337,6 +328,7 @@
     const tmpPos = new THREE.Vector3();
     const tmpQuat = new THREE.Quaternion();
     const tmpScale = new THREE.Vector3();
+    const euler = new THREE.Euler(0, 0, 0, 'YXZ');
 
     function renderLoop() {
       if (video && video.readyState >= 2 && video.currentTime !== lastVideoTime) {
@@ -365,6 +357,17 @@
 
           headGroup.position.copy(smoothPos);
           headGroup.quaternion.copy(smoothQuat);
+
+          // Dynamic Arm Occlusion Culling:
+          // When head turns left/right past 18 degrees, hide the occluded temple arm entirely!
+          euler.setFromQuaternion(smoothQuat, 'YXZ');
+          const yaw = euler.y;
+          if (leftArmMesh && rightArmMesh) {
+            // If turning right, hide the right arm when it goes behind head; if left, hide left arm
+            leftArmMesh.visible = yaw > -0.28;
+            rightArmMesh.visible = yaw < 0.28;
+          }
+
           headGroup.visible = true;
         } else {
           headGroup.visible = false;
