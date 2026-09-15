@@ -208,6 +208,7 @@
         root.add(topBar);
       }
 
+      // Left & Right Lenses and Rims
       [-eyeSep, eyeSep].forEach((x) => {
         let rimGeo, lensGeo;
 
@@ -235,21 +236,21 @@
         root.add(lens);
       });
 
-      // Frame Temples: Extrude strictly into NEGATIVE Z (backwards toward ears)
-      const armLen = 1.35;
+      // Frame Temples: +Z reaches backwards toward the ears
+      const armLen = 1.45;
       const armGeo = new THREE.BoxGeometry(0.016, 0.024, armLen);
       const armOffset = eyeSep + rimRadius;
 
-      // Left Temple
+      // Left Arm
       const leftArm = new THREE.Mesh(armGeo, frameMat);
-      leftArm.position.set(-armOffset, -0.02, -armLen / 2);
-      leftArm.rotation.y = 0.04;
+      leftArm.position.set(-armOffset, -0.02, armLen / 2);
+      leftArm.rotation.y = -0.04;
       root.add(leftArm);
 
-      // Right Temple
+      // Right Arm
       const rightArm = new THREE.Mesh(armGeo, frameMat);
-      rightArm.position.set(armOffset, -0.02, -armLen / 2);
-      rightArm.rotation.y = -0.04;
+      rightArm.position.set(armOffset, -0.02, armLen / 2);
+      rightArm.rotation.y = 0.04;
       root.add(rightArm);
 
       glassesContainer.add(root);
@@ -309,34 +310,31 @@
           const visibleHeight = 2 * Math.tan(vFOV / 2) * zCam;
           const visibleWidth = visibleHeight * camera.aspect;
 
-          // Align Y to pupil center and push forward on Z
           const targetX = -(pBridge.x - 0.5) * visibleWidth;
-          const targetY = -(pBridge.y - 0.5) * visibleHeight - 0.12; 
-          const targetZ = zCam - 3.5 - (pBridge.z * 1.5) + 0.05;
+          const targetY = -(pBridge.y - 0.5) * visibleHeight - 0.02; 
+          const targetZ = zCam - 3.5 - (pBridge.z * 1.5) + 0.04;
 
-          // Orthonormal Basis Vector Rotation (Correct Face Direction)
-          // X: Interpupillary eye line
+          // Basis Vectors
           const vecX = new THREE.Vector3(
             -(pRightEye.x - pLeftEye.x) * visibleWidth,
             -(pRightEye.y - pLeftEye.y) * visibleHeight,
             -(pRightEye.z - pLeftEye.z) * 2.0
           ).normalize();
 
-          // Y: Vertical head axis
           const vecY = new THREE.Vector3(
             -(pForehead.x - pBridge.x) * visibleWidth,
             -(pForehead.y - pBridge.y) * visibleHeight,
             -(pForehead.z - pBridge.z) * 2.0
           ).normalize();
 
-          // Z: Points straight out of face (+Z into screen, arms reach -Z)
-          const vecZ = new THREE.Vector3().crossVectors(vecX, vecY).normalize();
+          // Invert Z so it points back toward the ears
+          const vecZ = new THREE.Vector3().crossVectors(vecX, vecY).normalize().negate();
           const correctedY = new THREE.Vector3().crossVectors(vecZ, vecX).normalize();
 
           const rotMatrix = new THREE.Matrix4().makeBasis(vecX, correctedY, vecZ);
           const targetQuat = new THREE.Quaternion().setFromRotationMatrix(rotMatrix);
 
-          // Eye-to-Eye Span Scale
+          // Scaling
           const eyeSpan = Math.hypot(
             (pRightEye.x - pLeftEye.x) * visibleWidth,
             (pRightEye.y - pLeftEye.y) * visibleHeight
@@ -417,7 +415,7 @@
   <div id="vto-root">
     <div id="loader">
       <div class="spinner"></div>
-      <p id="loader-text">Loading 3D Optics...</p>
+      <p id="loader-text">Calibrating 3D Pose...</p>
     </div>
 
     <video id="webcam" playsinline autoplay muted></video>
