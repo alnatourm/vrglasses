@@ -127,7 +127,7 @@
 
     let currentConfig = CATALOG[0];
     let faceLandmarker, video, scene, camera, renderer;
-    let glassesContainer;
+    let headGroup, occluderMesh, glassesContainer;
     const loaderElem = document.getElementById("loader");
 
     const smoothPos = new THREE.Vector3();
@@ -156,8 +156,31 @@
       dirLight.position.set(1.5, 3, 3);
       scene.add(dirLight);
 
+      // Root tracked head anchor
+      headGroup = new THREE.Group();
+      scene.add(headGroup);
+
+      // -------------------------------------------------------------
+      // DEPTH-ONLY HEAD OCCLUDER
+      // Writes to Z-buffer only: cuts off temple arms behind ears
+      // -------------------------------------------------------------
+      const occluderGeo = new THREE.SphereGeometry(0.88, 32, 24);
+      occluderGeo.scale(0.82, 1.1, 1.0);
+
+      const occluderMat = new THREE.MeshBasicMaterial({
+        colorWrite: false, // Don't render color
+        depthWrite: true   // Do block anything behind it
+      });
+
+      occluderMesh = new THREE.Mesh(occluderGeo, occluderMat);
+      // Sits back behind the eye plane so the front frames never get cut
+      occluderMesh.position.set(0, -0.1, -0.75);
+      occluderMesh.renderOrder = 0;
+      headGroup.add(occluderMesh);
+
       glassesContainer = new THREE.Group();
-      scene.add(glassesContainer);
+      glassesContainer.renderOrder = 1;
+      headGroup.add(glassesContainer);
 
       buildEyewear(currentConfig);
       window.addEventListener("resize", onResize);
@@ -200,6 +223,7 @@
       const bridgeGeo = new THREE.CylinderGeometry(rimThickness * 0.7, rimThickness * 0.7, eyeSep * 0.85, 16);
       bridgeGeo.rotateZ(Math.PI / 2);
       const bridge = new THREE.Mesh(bridgeGeo, frameMat);
+      bridge.position.set(0, 0, 0);
       root.add(bridge);
 
       if (cfg.style === "aviator") {
@@ -236,21 +260,23 @@
         root.add(lens);
       });
 
-      // Frame Temples: +Z reaches backwards toward the ears
-      const armLen = 1.45;
+      // Frame Temples: Extrude strictly into NEGATIVE Z (backwards toward ears)
+      const armLen = 1.5;
       const armGeo = new THREE.BoxGeometry(0.016, 0.024, armLen);
       const armOffset = eyeSep + rimRadius;
 
-      // Left Arm
+      // Left Temple (angles slightly down and back into -Z)
       const leftArm = new THREE.Mesh(armGeo, frameMat);
-      leftArm.position.set(-armOffset, -0.02, armLen / 2);
-      leftArm.rotation.y = -0.04;
+      leftArm.position.set(-armOffset, -0.04, -armLen / 2);
+      leftArm.rotation.x = -0.05;
+      leftArm.rotation.y = 0.04;
       root.add(leftArm);
 
-      // Right Arm
+      // Right Temple
       const rightArm = new THREE.Mesh(armGeo, frameMat);
-      rightArm.position.set(armOffset, -0.02, armLen / 2);
-      rightArm.rotation.y = 0.04;
+      rightArm.position.set(armOffset, -0.04, -armLen / 2);
+      rightArm.rotation.x = -0.05;
+      rightArm.rotation.y = -0.04;
       root.add(rightArm);
 
       glassesContainer.add(root);
@@ -311,30 +337,33 @@
           const visibleWidth = visibleHeight * camera.aspect;
 
           const targetX = -(pBridge.x - 0.5) * visibleWidth;
-          const targetY = -(pBridge.y - 0.5) * visibleHeight - 0.02; 
-          const targetZ = zCam - 3.5 - (pBridge.z * 1.5) + 0.04;
+          const targetY = -(pBridge.y - 0.5) * visibleHeight - 0.05; 
+          const targetZ = zCam - 3.5 - (pBridge.z * 1.5) + 0.06;
 
           // Basis Vectors
+          // X: From left eye to right eye
           const vecX = new THREE.Vector3(
             -(pRightEye.x - pLeftEye.x) * visibleWidth,
             -(pRightEye.y - pLeftEye.y) * visibleHeight,
             -(pRightEye.z - pLeftEye.z) * 2.0
           ).normalize();
 
+          // Y: From bridge UP to forehead
           const vecY = new THREE.Vector3(
             -(pForehead.x - pBridge.x) * visibleWidth,
             -(pForehead.y - pBridge.y) * visibleHeight,
             -(pForehead.z - pBridge.z) * 2.0
           ).normalize();
 
-          // Invert Z so it points back toward the ears
-          const vecZ = new THREE.Vector3().crossVectors(vecX, vecY).normalize().negate();
+          // Z: Normal vector pointing STRAIGHT OUT of face toward camera (+Z)
+          const vecZ = new THREE.Vector3().crossVectors(vecX, vecY).normalize();
           const correctedY = new THREE.Vector3().crossVectors(vecZ, vecX).normalize();
 
+          // Construct Rotation Matrix (Front = +Z, Temples reach into -Z)
           const rotMatrix = new THREE.Matrix4().makeBasis(vecX, correctedY, vecZ);
           const targetQuat = new THREE.Quaternion().setFromRotationMatrix(rotMatrix);
 
-          // Scaling
+          // Real-time Pupillary Span Scale
           const eyeSpan = Math.hypot(
             (pRightEye.x - pLeftEye.x) * visibleWidth,
             (pRightEye.y - pLeftEye.y) * visibleHeight
@@ -352,12 +381,12 @@
             smoothScale += (targetScale - smoothScale) * 0.45;
           }
 
-          glassesContainer.position.copy(smoothPos);
-          glassesContainer.quaternion.copy(smoothQuat);
-          glassesContainer.scale.setScalar(smoothScale);
-          glassesContainer.visible = true;
+          headGroup.position.copy(smoothPos);
+          headGroup.quaternion.copy(smoothQuat);
+          headGroup.scale.setScalar(smoothScale);
+          headGroup.visible = true;
         } else {
-          glassesContainer.visible = false;
+          headGroup.visible = false;
           isFirst = true;
         }
       }
