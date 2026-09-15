@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0" />
-  <title>Custom 3D Eyewear Engine</title>
+  <title>Glasses Try-On</title>
   <style>
     * {
       box-sizing: border-box;
@@ -55,7 +55,7 @@
       align-items: center;
       z-index: 30;
       gap: 16px;
-      transition: opacity 0.4s ease;
+      transition: opacity 0.3s ease;
     }
     .spinner {
       width: 44px;
@@ -77,13 +77,12 @@
       transform: translateX(-50%);
       z-index: 10;
       display: flex;
-      gap: 12px;
+      gap: 10px;
       background: rgba(20, 24, 33, 0.85);
       backdrop-filter: blur(14px);
       padding: 8px 16px;
       border-radius: 40px;
       border: 1px solid rgba(255, 255, 255, 0.12);
-      box-shadow: 0 16px 32px rgba(0, 0, 0, 0.5);
     }
     .btn {
       background: rgba(255, 255, 255, 0.08);
@@ -93,12 +92,10 @@
       padding: 8px 16px;
       border-radius: 20px;
       cursor: pointer;
-      transition: all 0.2s;
     }
     .btn.active {
       background: #3b82f6;
       border-color: #60a5fa;
-      box-shadow: 0 0 12px rgba(59, 130, 246, 0.5);
     }
     .snapshot-btn {
       width: 40px;
@@ -114,18 +111,15 @@
     }
   </style>
 
-  <!-- Three.js + GLTFLoader -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
 
-  <!-- Google MediaPipe Tasks Vision -->
   <script type="module">
     import {
       FaceLandmarker,
       FilesetResolver
     } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.10";
 
-    const EYEWEAR_CATALOG = [
+    const CATALOG = [
       {
         id: "classic-black",
         name: "Wayfarer Black",
@@ -133,8 +127,7 @@
         lensColor: 0x0f172a,
         metalness: 0.1,
         roughness: 0.2,
-        style: "square",
-        modelUrl: null // Set path to .glb file if using 3D files
+        style: "square"
       },
       {
         id: "aviator-gold",
@@ -143,8 +136,7 @@
         lensColor: 0x142b1e,
         metalness: 0.85,
         roughness: 0.08,
-        style: "aviator",
-        modelUrl: null
+        style: "aviator"
       },
       {
         id: "amber-round",
@@ -153,39 +145,26 @@
         lensColor: 0x3d200e,
         metalness: 0.05,
         roughness: 0.25,
-        style: "round",
-        modelUrl: null
+        style: "round"
       }
     ];
 
-    let currentConfig = EYEWEAR_CATALOG[0];
+    let currentConfig = CATALOG[0];
     let faceLandmarker, video, scene, camera, renderer;
-    let headGroup, occluderMesh, glassesContainer;
+    let glassesContainer;
     const loaderElem = document.getElementById("loader");
 
-    // Smoothing vectors
     const smoothPos = new THREE.Vector3();
     const smoothQuat = new THREE.Quaternion();
     let smoothScale = 1.0;
-    let isFirstDetection = true;
-
-    // MediaPipe Key Anthropometric Landmarks
-    const LM = {
-      NOSE_BRIDGE: 168,     // Bridge saddle
-      LEFT_EYE_OUTER: 33,   // Left lateral canthus
-      RIGHT_EYE_OUTER: 263, // Right lateral canthus
-      FOREHEAD: 10,         // Trichion / Mid-forehead
-      CHIN: 152,            // Gnathion / Lower chin
-      NOSE_TIP: 1           // Pronasale
-    };
+    let isFirst = true;
 
     function initThree() {
       const canvas = document.getElementById("three-canvas");
       scene = new THREE.Scene();
 
-      // Camera FOV matched to mobile front-facing lenses (~55 degrees)
-      camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 100);
-      camera.position.set(0, 0, 0);
+      camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+      camera.position.set(0, 0, 3.5);
 
       renderer = new THREE.WebGLRenderer({
         canvas,
@@ -196,55 +175,24 @@
       renderer.setSize(window.innerWidth, window.innerHeight);
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
-      // Realistic Studio Environment Lights
-      const ambient = new THREE.AmbientLight(0xffffff, 1.4);
-      scene.add(ambient);
-
-      const keyLight = new THREE.DirectionalLight(0xffffff, 1.8);
-      keyLight.position.set(1.5, 3, 2);
-      scene.add(keyLight);
-
-      const fillLight = new THREE.DirectionalLight(0xbfdbfe, 0.8);
-      fillLight.position.set(-1.5, -0.5, 1.5);
-      scene.add(fillLight);
-
-      headGroup = new THREE.Group();
-      scene.add(headGroup);
-
-      // -------------------------------------------------------------
-      // 1. ANATOMICAL HEAD OCCLUDER (Hides temples behind ears)
-      // Writes strictly to the depth buffer (Z-buffer) with no color
-      // -------------------------------------------------------------
-      const occluderGeo = new THREE.SphereGeometry(0.85, 32, 32);
-      occluderGeo.scale(0.88, 1.15, 1.05); // Approximates skull dimensions
-
-      const occluderMat = new THREE.MeshBasicMaterial({
-        colorWrite: false, // Transparent
-        depthWrite: true   // Masks any 3D object behind it
-      });
-
-      occluderMesh = new THREE.Mesh(occluderGeo, occluderMat);
-      occluderMesh.position.set(0, -0.15, -0.75);
-      occluderMesh.renderOrder = 0;
-      headGroup.add(occluderMesh);
+      scene.add(new THREE.AmbientLight(0xffffff, 1.6));
+      const dirLight = new THREE.DirectionalLight(0xffffff, 1.8);
+      dirLight.position.set(1.5, 3, 3);
+      scene.add(dirLight);
 
       glassesContainer = new THREE.Group();
-      glassesContainer.renderOrder = 1;
-      headGroup.add(glassesContainer);
+      scene.add(glassesContainer);
 
       buildEyewear(currentConfig);
-      window.addEventListener("resize", onWindowResize);
+      window.addEventListener("resize", onResize);
     }
 
-    function onWindowResize() {
+    function onResize() {
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth, window.innerHeight);
     }
 
-    // -------------------------------------------------------------
-    // 2. PROCEDURAL EYEWEAR BUILDER (Or loads .GLB if provided)
-    // -------------------------------------------------------------
     function buildEyewear(cfg) {
       while (glassesContainer.children.length) {
         glassesContainer.remove(glassesContainer.children[0]);
@@ -263,35 +211,33 @@
         metalness: 0,
         roughness: 0.05,
         transmission: 0.85,
-        thickness: 0.05,
-        ior: 1.52,
         transparent: true,
         opacity: 0.75,
         depthWrite: false
       });
 
-      const eyeSeparation = 0.32;
-      const rimRadius = 0.21;
-      const rimThickness = 0.018;
+      const eyeSep = 0.38;
+      const rimRadius = 0.24;
+      const rimThickness = 0.022;
 
-      // Central Nose Bridge (Locked exactly to origin 0,0,0)
-      const bridgeGeo = new THREE.CylinderGeometry(rimThickness * 0.7, rimThickness * 0.7, eyeSeparation * 0.85, 16);
+      // Central Nose Bridge
+      const bridgeGeo = new THREE.CylinderGeometry(rimThickness * 0.7, rimThickness * 0.7, eyeSep * 0.85, 16);
       bridgeGeo.rotateZ(Math.PI / 2);
       const bridge = new THREE.Mesh(bridgeGeo, frameMat);
       root.add(bridge);
 
       if (cfg.style === "aviator") {
-        const topBar = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.012, 0.014), frameMat);
-        topBar.position.set(0, 0.10, 0);
+        const topBar = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.014, 0.016), frameMat);
+        topBar.position.set(0, 0.12, 0);
         root.add(topBar);
       }
 
       // Left & Right Lenses and Rims
-      [-eyeSeparation, eyeSeparation].forEach((x) => {
+      [-eyeSep, eyeSep].forEach((x) => {
         let rimGeo, lensGeo;
 
         if (cfg.style === "aviator") {
-          rimGeo = new THREE.TorusGeometry(rimRadius, 0.014, 12, 36);
+          rimGeo = new THREE.TorusGeometry(rimRadius, 0.016, 12, 36);
           lensGeo = new THREE.CircleGeometry(rimRadius * 0.95, 32);
         } else if (cfg.style === "square") {
           rimGeo = new THREE.TorusGeometry(rimRadius, rimThickness, 14, 36);
@@ -314,22 +260,20 @@
         root.add(lens);
       });
 
-      // Frame Temples (Arms extending backward directly into the occluder volume)
-      const templeLength = 1.45;
-      const templeGeo = new THREE.BoxGeometry(0.015, 0.024, templeLength);
-      const templeOffset = eyeSeparation + rimRadius;
+      // Frame Temples
+      const armLen = 1.35;
+      const armGeo = new THREE.BoxGeometry(0.016, 0.024, armLen);
+      const armOffset = eyeSep + rimRadius;
 
-      const leftTemple = new THREE.Mesh(templeGeo, frameMat);
-      leftTemple.position.set(-templeOffset, -0.02, -templeLength / 2);
-      leftTemple.rotation.x = -0.05;
-      leftTemple.rotation.y = 0.04;
-      root.add(leftTemple);
+      const leftArm = new THREE.Mesh(armGeo, frameMat);
+      leftArm.position.set(-armOffset, -0.02, -armLen / 2);
+      leftArm.rotation.y = 0.04;
+      root.add(leftArm);
 
-      const rightTemple = new THREE.Mesh(templeGeo, frameMat);
-      rightTemple.position.set(templeOffset, -0.02, -templeLength / 2);
-      rightTemple.rotation.x = -0.05;
-      rightTemple.rotation.y = -0.04;
-      root.add(rightTemple);
+      const rightArm = new THREE.Mesh(armGeo, frameMat);
+      rightArm.position.set(armOffset, -0.02, -armLen / 2);
+      rightArm.rotation.y = -0.04;
+      root.add(rightArm);
 
       glassesContainer.add(root);
     }
@@ -361,14 +305,11 @@
       video.onloadeddata = () => {
         video.play();
         loaderElem.style.opacity = "0";
-        setTimeout(() => (loaderElem.style.display = "none"), 400);
+        setTimeout(() => (loaderElem.style.display = "none"), 300);
         requestAnimationFrame(renderLoop);
       };
     }
 
-    // -------------------------------------------------------------
-    // 3. THE TRACKING & ORTHONORMAL PROJECTION SOLVER
-    // -------------------------------------------------------------
     let lastVideoTime = -1;
 
     function renderLoop() {
@@ -379,70 +320,67 @@
         if (results.faceLandmarks && results.faceLandmarks.length > 0) {
           const lms = results.faceLandmarks[0];
 
-          const pBridge = lms[LM.NOSE_BRIDGE];
-          const pLeftEye = lms[LM.LEFT_EYE_OUTER];
-          const pRightEye = lms[LM.RIGHT_EYE_OUTER];
-          const pForehead = lms[LM.FOREHEAD];
-          const pNoseTip = lms[LM.NOSE_TIP];
+          // Key Landmarks
+          const pBridge = lms[168];     // Saddle of nose between eyes
+          const pLeftEye = lms[33];      // Left eye outer corner
+          const pRightEye = lms[263];    // Right eye outer corner
+          const pForehead = lms[10];     // Forehead
 
-          // 1. Real-World Screen Space Projection
-          // Distance estimate derived from inter-ocular baseline (~63mm)
-          const eyeDistNorm = Math.hypot(pRightEye.x - pLeftEye.x, pRightEye.y - pLeftEye.y);
-          const zDepth = THREE.MathUtils.clamp(0.28 / eyeDistNorm, 1.2, 5.0);
-
+          // Perspective Viewport Space at camera.position.z = 3.5
+          const zCam = 3.5;
           const vFOV = THREE.MathUtils.degToRad(camera.fov);
-          const visibleHeight = 2 * Math.tan(vFOV / 2) * zDepth;
+          const visibleHeight = 2 * Math.tan(vFOV / 2) * zCam;
           const visibleWidth = visibleHeight * camera.aspect;
 
-          // Compute exact (X, Y, Z) anchored to Landmark 168 (Nose Bridge)
+          // Push glasses slightly forward (+0.08) so they float on top of the skin, not inside
           const targetX = -(pBridge.x - 0.5) * visibleWidth;
           const targetY = -(pBridge.y - 0.5) * visibleHeight;
-          const targetZ = -zDepth;
+          const targetZ = zCam - 3.5 - (pBridge.z * 1.5) + 0.08;
 
-          // 2. Orthonormal Rotation Matrix (No Gimbal Lock, Pure 6DoF)
-          // Vector X: Along the interpupillary line
+          // Orthonormal Basis Vector Rotation
           const vecX = new THREE.Vector3(
             -(pRightEye.x - pLeftEye.x) * visibleWidth,
             -(pRightEye.y - pLeftEye.y) * visibleHeight,
-            -(pRightEye.z - pLeftEye.z) * 2.5
+            -(pRightEye.z - pLeftEye.z) * 2.0
           ).normalize();
 
-          // Vector Y: From bridge saddle to upper forehead
           const vecY = new THREE.Vector3(
             -(pForehead.x - pBridge.x) * visibleWidth,
             -(pForehead.y - pBridge.y) * visibleHeight,
-            -(pForehead.z - pBridge.z) * 2.5
+            -(pForehead.z - pBridge.z) * 2.0
           ).normalize();
 
-          // Vector Z: Normal to face plane (pointing out)
           const vecZ = new THREE.Vector3().crossVectors(vecX, vecY).normalize();
           const correctedY = new THREE.Vector3().crossVectors(vecZ, vecX).normalize();
 
           const rotMatrix = new THREE.Matrix4().makeBasis(vecX, correctedY, vecZ);
           const targetQuat = new THREE.Quaternion().setFromRotationMatrix(rotMatrix);
 
-          // 3. Proportional Scaling
-          const targetScale = (eyeDistNorm * visibleWidth) * 0.96;
+          // Real-time Pupillary Span Scale
+          const eyeSpan = Math.hypot(
+            (pRightEye.x - pLeftEye.x) * visibleWidth,
+            (pRightEye.y - pLeftEye.y) * visibleHeight
+          );
+          const targetScale = eyeSpan * 0.95;
 
-          // 4. Jitter Dampening
-          if (isFirstDetection) {
+          if (isFirst) {
             smoothPos.set(targetX, targetY, targetZ);
             smoothQuat.copy(targetQuat);
             smoothScale = targetScale;
-            isFirstDetection = false;
+            isFirst = false;
           } else {
             smoothPos.lerp(new THREE.Vector3(targetX, targetY, targetZ), 0.5);
             smoothQuat.slerp(targetQuat, 0.55);
             smoothScale += (targetScale - smoothScale) * 0.45;
           }
 
-          headGroup.position.copy(smoothPos);
-          headGroup.quaternion.copy(smoothQuat);
-          headGroup.scale.setScalar(smoothScale);
-          headGroup.visible = true;
+          glassesContainer.position.copy(smoothPos);
+          glassesContainer.quaternion.copy(smoothQuat);
+          glassesContainer.scale.setScalar(smoothScale);
+          glassesContainer.visible = true;
         } else {
-          headGroup.visible = false;
-          isFirstDetection = true;
+          glassesContainer.visible = false;
+          isFirst = true;
         }
       }
 
@@ -452,12 +390,12 @@
 
     function setupControls() {
       const dock = document.getElementById("dock");
-      EYEWEAR_CATALOG.forEach((m, i) => {
+      CATALOG.forEach((m, i) => {
         const btn = document.createElement("button");
         btn.className = `btn ${i === 0 ? "active" : ""}`;
         btn.innerText = m.name;
         btn.onclick = () => {
-          document.querySelectorAll(".btn").forEach((b) => b.classList.remove("active"));
+          document.querySelectorAll(".btn").forEach(b => b.classList.remove("active"));
           btn.classList.add("active");
           currentConfig = m;
           buildEyewear(m);
@@ -466,6 +404,7 @@
       });
 
       document.getElementById("snapshot").onclick = () => {
+        if (!video?.videoWidth) return;
         const snap = document.createElement("canvas");
         snap.width = video.videoWidth;
         snap.height = video.videoHeight;
@@ -481,7 +420,7 @@
         ctx.drawImage(threeCanvas, 0, 0, snap.width, snap.height);
 
         const link = document.createElement("a");
-        link.download = `glasses-tryon-${Date.now()}.png`;
+        link.download = `glasses-${Date.now()}.png`;
         link.href = snap.toDataURL("image/png");
         link.click();
       };
@@ -498,14 +437,14 @@
   <div id="vto-root">
     <div id="loader">
       <div class="spinner"></div>
-      <p id="loader-text">Loading 3D Optics Engine...</p>
+      <p id="loader-text">Loading 3D Optics...</p>
     </div>
 
     <video id="webcam" playsinline autoplay muted></video>
     <canvas id="three-canvas"></canvas>
 
     <nav id="dock">
-      <button class="snapshot-btn" id="snapshot" title="Take photo">
+      <button class="snapshot-btn" id="snapshot" title="Save Photo">
         <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
           <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
           <circle cx="12" cy="13" r="4"></circle>
