@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0" />
-  <title>Virtual Glasses Try-On</title>
+  <title>Glasses Try-On</title>
   <style>
     * {
       box-sizing: border-box;
@@ -13,167 +13,85 @@
       -webkit-tap-highlight-color: transparent;
     }
     html, body {
-      background: #0d0e12;
+      background: #000;
       color: #fff;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       overflow: hidden;
       width: 100%;
       height: 100%;
     }
-    #vrglasses-root {
-      position: relative;
-      width: 100%;
-      height: 100%;
-      overflow: hidden;
-      background: #000;
-    }
     #viewport {
-      position: absolute;
-      inset: 0;
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
     }
     #webcam {
       position: absolute;
-      inset: 0;
+      top: 0;
+      left: 0;
       width: 100%;
       height: 100%;
       object-fit: cover;
       transform: scaleX(-1);
       z-index: 1;
-      background: #000;
     }
     #three-canvas {
       position: absolute;
-      inset: 0;
+      top: 0;
+      left: 0;
       width: 100%;
       height: 100%;
       z-index: 2;
       pointer-events: none;
     }
-    #loader-overlay {
+    #loader {
       position: absolute;
       inset: 0;
-      background: rgba(13, 14, 18, 0.95);
+      background: rgba(10, 10, 12, 0.94);
       display: flex;
       flex-direction: column;
       justify-content: center;
       align-items: center;
-      z-index: 30;
-      gap: 18px;
-      transition: opacity 0.4s ease;
-      text-align: center;
-      padding: 24px;
+      z-index: 20;
+      gap: 16px;
+      transition: opacity 0.3s;
     }
-    .spinner {
-      width: 48px;
-      height: 48px;
-      border: 4px solid rgba(255, 255, 255, 0.12);
+    .spin {
+      width: 44px;
+      height: 44px;
+      border: 4px solid rgba(255, 255, 255, 0.15);
       border-top-color: #3b82f6;
       border-radius: 50%;
-      animation: spin 0.75s linear infinite;
+      animation: s 0.8s linear infinite;
     }
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
-    #loader-text {
-      font-size: 0.95rem;
-      color: #94a3b8;
-      max-width: 280px;
-      line-height: 1.4;
-    }
-    .action-btn {
-      display: none;
-      background: #3b82f6;
-      color: #fff;
-      border: none;
-      padding: 14px 32px;
-      border-radius: 28px;
-      font-size: 1rem;
-      font-weight: 600;
-      cursor: pointer;
-    }
-    #error-log {
-      color: #f87171;
-      font-size: 0.9rem;
-      max-width: 320px;
-      display: none;
-      background: rgba(239, 68, 68, 0.12);
-      padding: 12px 18px;
-      border-radius: 12px;
-      line-height: 1.4;
-    }
+    @keyframes s { to { transform: rotate(360deg); } }
     #dock {
       position: absolute;
-      bottom: 0;
-      left: 0;
-      right: 0;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
       z-index: 10;
-      padding: 12px 12px 28px;
-      background: linear-gradient(to top, rgba(0, 0, 0, 0.85) 30%, transparent);
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 12px;
-    }
-    #product-strip {
       display: flex;
       gap: 10px;
-      overflow-x: auto;
-      max-width: 100%;
-      padding: 4px 8px 8px;
-      scrollbar-width: none;
+      background: rgba(24, 24, 27, 0.8);
+      backdrop-filter: blur(14px);
+      padding: 8px 16px;
+      border-radius: 30px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
     }
-    #product-strip::-webkit-scrollbar {
-      display: none;
-    }
-    .product-card {
-      flex: 0 0 auto;
-      background: rgba(30, 41, 59, 0.85);
-      border: 1.5px solid rgba(255, 255, 255, 0.12);
-      border-radius: 16px;
-      padding: 10px 14px;
-      min-width: 110px;
-      text-align: center;
-      cursor: pointer;
-      transition: all 0.2s ease;
-      backdrop-filter: blur(12px);
-    }
-    .product-card.active {
-      background: #1e40af;
-      border-color: #60a5fa;
-      box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.35);
-    }
-    .product-card .name {
-      font-size: 0.82rem;
-      font-weight: 600;
-      margin-bottom: 2px;
-    }
-    .product-card .price {
-      font-size: 0.75rem;
-      color: #94a3b8;
-    }
-    .product-card.active .price {
-      color: #bfdbfe;
-    }
-    #actions {
-      display: flex;
-      gap: 10px;
-      align-items: center;
-    }
-    .snapshot-btn {
-      width: 48px;
-      height: 48px;
-      border-radius: 50%;
-      border: none;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      cursor: pointer;
-      background: #059669;
+    .btn {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.15);
       color: #fff;
-      backdrop-filter: blur(8px);
+      font-size: 0.82rem;
+      padding: 7px 15px;
+      border-radius: 20px;
+      cursor: pointer;
     }
-    .snapshot-btn:active {
-      transform: scale(0.94);
+    .btn.active {
+      background: #3b82f6;
+      border-color: #60a5fa;
     }
   </style>
 
@@ -185,420 +103,258 @@
       FilesetResolver
     } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.10";
 
-    const GLASSES_MODELS = [
-      {
-        id: "classic-black",
-        name: "Classic Black",
-        price: "$89",
-        frameColor: 0x18181b,
-        lensColor: 0x0f172a,
-        roughness: 0.2,
-        metalness: 0.1,
-        style: "classic"
-      },
-      {
-        id: "aviator-gold",
-        name: "Aviator Gold",
-        price: "$129",
-        frameColor: 0xd4af37,
-        lensColor: 0x1a2e1a,
-        roughness: 0.08,
-        metalness: 0.85,
-        style: "aviator"
-      },
-      {
-        id: "amber-round",
-        name: "Amber Round",
-        price: "$99",
-        frameColor: 0x7c3f16,
-        lensColor: 0x3d200e,
-        roughness: 0.25,
-        metalness: 0.05,
-        style: "round"
-      }
+    const MODELS = [
+      { id: "black", name: "Black Wayfarer", frame: 0x18181b, lens: 0x0f172a, style: "square" },
+      { id: "gold", name: "Gold Aviator", frame: 0xd4af37, lens: 0x1a2e1a, style: "aviator" },
+      { id: "amber", name: "Amber Round", frame: 0x7c3f16, lens: 0x3d200e, style: "round" }
     ];
 
-    let faceLandmarker = null;
-    let video, scene, camera, renderer;
-    let glassesContainer;
-    let stream = null;
-    let running = false;
-    let rafId = null;
-    let currentConfig = GLASSES_MODELS[0];
-    let firstDetection = true;
+    let currentModel = MODELS[0];
+    let faceLandmarker, video, scene, camera, renderer;
+    let glassesGroup;
+    const loader = document.getElementById("loader");
 
-    const rootElem = document.getElementById("vrglasses-root");
-    const loaderElem = document.getElementById("loader-overlay");
-    const loaderText = document.getElementById("loader-text");
-    const spinnerElem = document.querySelector(".spinner");
-    const startBtn = document.getElementById("start-btn");
-    const errorLog = document.getElementById("error-log");
+    // Smoothing vectors
+    const sPos = new THREE.Vector3();
+    const sQuat = new THREE.Quaternion();
+    let sScale = 1.0;
+    let first = true;
 
-    const smoothPos = new THREE.Vector3();
-    const smoothQuat = new THREE.Quaternion();
-    let smoothScaleVal = 1.0;
-
-    // Key MediaPipe Landmark indices
-    const LM = {
-      NOSE_BRIDGE: 168,     // Directly between the eyes (exact saddle of the nose)
-      LEFT_EYE: 33,         // Left outer eye corner
-      RIGHT_EYE: 263,       // Right outer eye corner
-      FOREHEAD: 10,         // Upper forehead
-      CHIN: 152             // Center of the chin
-    };
-
-    function initScene() {
+    function initThree() {
       const canvas = document.getElementById("three-canvas");
       scene = new THREE.Scene();
 
-      camera = new THREE.PerspectiveCamera(45, rootElem.clientWidth / rootElem.clientHeight, 0.1, 100);
-      camera.position.set(0, 0, 5); // Stand back on Z to project screen-space landmarks accurately
+      // Orthographic/matching perspective camera
+      camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+      camera.position.set(0, 0, 3.5);
 
-      renderer = new THREE.WebGLRenderer({
-        canvas,
-        alpha: true,
-        antialias: true,
-        preserveDrawingBuffer: true
-      });
-      renderer.setSize(rootElem.clientWidth, rootElem.clientHeight);
+      renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
-      const ambient = new THREE.AmbientLight(0xffffff, 1.8);
-      scene.add(ambient);
+      scene.add(new THREE.AmbientLight(0xffffff, 1.6));
+      const light = new THREE.DirectionalLight(0xffffff, 1.8);
+      light.position.set(1, 2, 3);
+      scene.add(light);
 
-      const key = new THREE.DirectionalLight(0xffffff, 2.0);
-      key.position.set(1.5, 3, 3);
-      scene.add(key);
+      glassesGroup = new THREE.Group();
+      scene.add(glassesGroup);
 
-      glassesContainer = new THREE.Group();
-      scene.add(glassesContainer);
-
-      buildProceduralEyewear(currentConfig);
-
-      const ro = new ResizeObserver(onContainerResize);
-      ro.observe(rootElem);
+      buildFrames(currentModel);
+      window.addEventListener("resize", onResize);
     }
 
-    function onContainerResize() {
-      if (!renderer || !camera) return;
-      const w = rootElem.clientWidth || 1;
-      const h = rootElem.clientHeight || 1;
-      camera.aspect = w / h;
+    function onResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
-      renderer.setSize(w, h);
+      renderer.setSize(window.innerWidth, window.innerHeight);
     }
 
-    function clearGlassesContainer() {
-      while (glassesContainer.children.length) {
-        const child = glassesContainer.children[0];
-        glassesContainer.remove(child);
-        if (child.geometry) child.geometry.dispose();
-        if (child.material) {
-          if (Array.isArray(child.material)) child.material.forEach((m) => m.dispose());
-          else child.material.dispose();
-        }
+    function buildFrames(cfg) {
+      while (glassesGroup.children.length) {
+        glassesGroup.remove(glassesGroup.children[0]);
       }
-    }
 
-    function applyEyewear(config) {
-      currentConfig = config;
-      buildProceduralEyewear(config);
-    }
+      const root = new THREE.Group();
+      const fMat = new THREE.MeshStandardMaterial({ color: cfg.frame, roughness: 0.2, metalness: cfg.id === "gold" ? 0.8 : 0.1 });
+      const lMat = new THREE.MeshPhysicalMaterial({ color: cfg.lens, transmission: 0.85, roughness: 0.05, opacity: 0.75, transparent: true, depthWrite: false });
 
-    function buildProceduralEyewear(config) {
-      clearGlassesContainer();
-      const group = new THREE.Group();
+      const w = 0.55; // Bridge center to side hinge unit
+      const r = 0.38; // Lens radius
 
-      const frameMat = new THREE.MeshStandardMaterial({
-        color: config.frameColor,
-        roughness: config.roughness,
-        metalness: config.metalness
-      });
-
-      const lensMat = new THREE.MeshPhysicalMaterial({
-        color: config.lensColor,
-        metalness: 0,
-        roughness: 0.05,
-        transmission: 0.84,
-        thickness: 0.05,
-        ior: 1.5,
-        transparent: true,
-        opacity: 0.72,
-        depthWrite: false
-      });
-
-      const eyeSep = 0.38;
-      const rimRadius = 0.24;
-      const thickness = 0.022;
-
-      // Solid Nose Bridge
-      const bridge = new THREE.Mesh(
-        new THREE.CylinderGeometry(thickness * 0.7, thickness * 0.7, eyeSep * 0.85, 16),
-        frameMat
-      );
+      // Central Nose Bridge
+      const bridge = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.32, 16), fMat);
       bridge.rotation.z = Math.PI / 2;
       bridge.position.set(0, 0, 0);
-      group.add(bridge);
+      root.add(bridge);
 
-      // Left & Right Lenses and Rims
-      [-eyeSep, eyeSep].forEach((x) => {
-        let rimGeo, lensGeo;
+      // Top bar for aviators
+      if (cfg.style === "aviator") {
+        const topBar = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.02, 0.02), fMat);
+        topBar.position.set(0, 0.22, 0);
+        root.add(topBar);
+      }
 
-        if (config.style === "aviator") {
-          rimGeo = new THREE.TorusGeometry(rimRadius, 0.016, 12, 36);
-          const rim = new THREE.Mesh(rimGeo, frameMat);
-          rim.scale.set(1.05, 1.25, 1);
-          rim.position.set(x, -0.04, 0);
-          group.add(rim);
+      [-w, w].forEach((x) => {
+        // Frame Rims
+        const rim = new THREE.Mesh(new THREE.TorusGeometry(r, 0.028, 16, 40), fMat);
+        if (cfg.style === "aviator") rim.scale.set(1.0, 1.2, 1.0);
+        if (cfg.style === "square") rim.scale.set(1.15, 0.9, 1.0);
+        rim.position.set(x, 0, 0);
+        root.add(rim);
 
-          lensGeo = new THREE.CircleGeometry(rimRadius * 0.95, 32);
-          const lens = new THREE.Mesh(lensGeo, lensMat);
-          lens.scale.set(1.05, 1.25, 1);
-          lens.position.set(x, -0.04, 0.002);
-          group.add(lens);
-        } else {
-          rimGeo = new THREE.TorusGeometry(rimRadius, thickness, 14, 40);
-          const rim = new THREE.Mesh(rimGeo, frameMat);
-          rim.position.set(x, 0, 0);
-          group.add(rim);
-
-          lensGeo = new THREE.CircleGeometry(rimRadius * 0.95, 36);
-          const lens = new THREE.Mesh(lensGeo, lensMat);
-          lens.position.set(x, 0, 0.002);
-          group.add(lens);
-        }
+        // Lenses
+        const lens = new THREE.Mesh(new THREE.CircleGeometry(r * 0.94, 32), lMat);
+        if (cfg.style === "aviator") lens.scale.set(1.0, 1.2, 1.0);
+        if (cfg.style === "square") lens.scale.set(1.15, 0.9, 1.0);
+        lens.position.set(x, 0, 0.002);
+        root.add(lens);
       });
 
-      // Temples / Arms (Angled backwards to hug the head)
-      const templeLength = 1.4;
-      const templeGeo = new THREE.BoxGeometry(0.016, 0.024, templeLength);
-      const templeOffset = eyeSep + rimRadius;
+      // Side Arms (Temples) extending backward into Z
+      const armLen = 2.4;
+      const armGeo = new THREE.BoxGeometry(0.025, 0.035, armLen);
+      const armOffset = w + r;
 
-      const leftTemple = new THREE.Mesh(templeGeo, frameMat);
-      leftTemple.position.set(-templeOffset, -0.03, -templeLength / 2);
-      leftTemple.rotation.x = -0.06;
-      leftTemple.rotation.y = 0.06;
-      group.add(leftTemple);
+      const leftArm = new THREE.Mesh(armGeo, fMat);
+      leftArm.position.set(-armOffset, -0.04, -armLen / 2);
+      leftArm.rotation.y = 0.05;
+      root.add(leftArm);
 
-      const rightTemple = new THREE.Mesh(templeGeo, frameMat);
-      rightTemple.position.set(templeOffset, -0.03, -templeLength / 2);
-      rightTemple.rotation.x = -0.06;
-      rightTemple.rotation.y = -0.06;
-      group.add(rightTemple);
+      const rightArm = new THREE.Mesh(armGeo, fMat);
+      rightArm.position.set(armOffset, -0.04, -armLen / 2);
+      rightArm.rotation.y = -0.05;
+      root.add(rightArm);
 
-      glassesContainer.add(group);
+      glassesGroup.add(root);
     }
 
-    async function initMediaPipe() {
-      try {
-        loaderText.textContent = "Loading eye & face detection…";
-        const fileset = await FilesetResolver.forVisionTasks(
-          "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.10/wasm"
-        );
+    async function init() {
+      initThree();
 
-        faceLandmarker = await FaceLandmarker.createFromOptions(fileset, {
-          baseOptions: {
-            modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
-            delegate: "GPU"
-          },
-          runningMode: "VIDEO",
-          numFaces: 1
-        });
+      const files = await FilesetResolver.forVisionTasks(
+        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.10/wasm"
+      );
 
-        loaderText.textContent = "Starting camera…";
-        await startCamera();
-      } catch (err) {
-        showError("Initialization error: " + err.message);
-      }
-    }
+      faceLandmarker = await FaceLandmarker.createFromOptions(files, {
+        baseOptions: {
+          modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
+          delegate: "GPU"
+        },
+        runningMode: "VIDEO",
+        numFaces: 1
+      });
 
-    async function startCamera() {
       video = document.getElementById("webcam");
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-            facingMode: "user"
-          },
-          audio: false
-        });
-        video.srcObject = stream;
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" },
+        audio: false
+      });
+      video.srcObject = stream;
+      video.onloadeddata = () => {
+        video.play();
+        loader.style.opacity = "0";
+        setTimeout(() => loader.style.display = "none", 300);
+        requestAnimationFrame(render);
+      };
 
-        video.onloadeddata = () => {
-          video.play();
-          loaderElem.style.opacity = "0";
-          setTimeout(() => { loaderElem.style.display = "none"; }, 400);
-          running = true;
-          rafId = requestAnimationFrame(renderLoop);
-        };
-      } catch (err) {
-        spinnerElem.style.display = "none";
-        loaderText.textContent = "Camera permission needed";
-        startBtn.style.display = "inline-block";
-        startBtn.onclick = async () => {
-          startBtn.style.display = "none";
-          spinnerElem.style.display = "block";
-          await startCamera();
-        };
-      }
+      setupUI();
     }
 
-    function showError(msg) {
-      spinnerElem.style.display = "none";
-      loaderText.style.display = "none";
-      errorLog.style.display = "block";
-      errorLog.textContent = msg;
-    }
+    let lastTime = -1;
 
-    let lastVideoTime = -1;
+    function render() {
+      if (video && video.readyState >= 2 && video.currentTime !== lastTime) {
+        lastTime = video.currentTime;
+        const res = faceLandmarker.detectForVideo(video, performance.now());
 
-    function renderLoop() {
-      if (!running) return;
+        if (res.faceLandmarks && res.faceLandmarks.length > 0) {
+          const lms = res.faceLandmarks[0];
 
-      if (video && video.readyState >= 2 && video.currentTime !== lastVideoTime) {
-        lastVideoTime = video.currentTime;
+          // 1. Precise Physical Face Anchor Points
+          const pBridge = lms[168]; // Saddle of the nose bridge (between eyes)
+          const pLeftEye = lms[33];  // Outer left eye corner
+          const pRightEye = lms[263];// Outer right eye corner
+          const pForehead = lms[10]; // Forehead marker for vertical pitch
 
-        const results = faceLandmarker.detectForVideo(video, performance.now());
+          // 2. Compute 3D Screen Coordinates from MediaPipe's normalized space
+          // Perspective projection mapped to camera distance (Z = 3.5)
+          const zDepth = 3.5;
+          const vFOV = THREE.MathUtils.degToRad(camera.fov);
+          const visibleHeight = 2 * Math.tan(vFOV / 2) * zDepth;
+          const visibleWidth = visibleHeight * camera.aspect;
 
-        if (results.faceLandmarks && results.faceLandmarks.length > 0) {
-          const lms = results.faceLandmarks[0];
+          // Target position pinned exactly to the nose bridge
+          const posX = -(pBridge.x - 0.5) * visibleWidth;
+          const posY = -(pBridge.y - 0.5) * visibleHeight;
+          const posZ = zDepth - 3.5 - (pBridge.z * 1.8);
 
-          // 1. Direct Landmark Anchors
-          const bridge = lms[LM.NOSE_BRIDGE];
-          const leftEye = lms[LM.LEFT_EYE];
-          const rightEye = lms[LM.RIGHT_EYE];
-          const topForehead = lms[LM.FOREHEAD];
-          const chin = lms[LM.CHIN];
+          // 3. EstephanoBrusa Orthonormal Vector Orientation
+          // Vector X: Exactly along the eye line
+          const eyeVec = new THREE.Vector3(
+            -(pRightEye.x - pLeftEye.x) * visibleWidth,
+            -(pRightEye.y - pLeftEye.y) * visibleHeight,
+            -(pRightEye.z - pLeftEye.z) * 2.0
+          ).normalize();
 
-          // 2. Map Normalized Coordinates (0-1) to Three.js Viewport Space
-          // Inverted X to match the mirrored selfie camera
-          const targetX = -(bridge.x - 0.5) * 4.2;
-          const targetY = -(bridge.y - 0.5) * 4.2 * (camera.aspect < 1 ? 1.6 : 1.0);
-          const targetZ = 5 - (bridge.z * 5.0) - 3.2;
+          // Vector Y: From bridge up to forehead
+          const upVec = new THREE.Vector3(
+            -(pForehead.x - pBridge.x) * visibleWidth,
+            -(pForehead.y - pBridge.y) * visibleHeight,
+            -(pForehead.z - pBridge.z) * 2.0
+          ).normalize();
 
-          const targetPos = new THREE.Vector3(targetX, targetY, targetZ);
+          // Vector Z: Cross product of X and Y (Points out of the face)
+          const forwardVec = new THREE.Vector3().crossVectors(eyeVec, upVec).normalize();
+          const correctedUp = new THREE.Vector3().crossVectors(forwardVec, eyeVec).normalize();
 
-          // 3. True Facial Rotations Calculated from Landmark Vectors
-          // Roll (head tilting left/right): Angle between the two eyes
-          const eyeDeltaX = -(rightEye.x - leftEye.x);
-          const eyeDeltaY = (rightEye.y - leftEye.y);
-          const roll = Math.atan2(eyeDeltaY, eyeDeltaX);
+          // Construct exact rotation matrix
+          const rotMatrix = new THREE.Matrix4().makeBasis(eyeVec, correctedUp, forwardVec);
+          const targetQuat = new THREE.Quaternion().setFromRotationMatrix(rotMatrix);
 
-          // Pitch (looking up/down): Angle between forehead and chin
-          const pitch = (chin.z - topForehead.z) * 2.8;
-
-          // Yaw (turning side-to-side): Depth difference between eyes
-          const yaw = (rightEye.z - leftEye.z) * 3.2;
-
-          const targetQuat = new THREE.Quaternion().setFromEuler(
-            new THREE.Euler(pitch, yaw, roll, "YXZ")
+          // 4. Physical Eye Distance Scaling
+          // Computes real-world pupillary width in Three.js units
+          const eyeSpan = Math.hypot(
+            (pRightEye.x - pLeftEye.x) * visibleWidth,
+            (pRightEye.y - pLeftEye.y) * visibleHeight
           );
+          const targetScale = eyeSpan * 0.95;
 
-          // 4. Exact Scale from Real Eye-to-Eye Span
-          const eyeDistance = Math.hypot((rightEye.x - leftEye.x), (rightEye.y - leftEye.y));
-          const targetScale = eyeDistance * 3.4;
-
-          // 5. Smooth Interpolation to absorb jitter
-          if (firstDetection) {
-            smoothPos.copy(targetPos);
-            smoothQuat.copy(targetQuat);
-            smoothScaleVal = targetScale;
-            firstDetection = false;
+          // 5. Smoothing
+          if (first) {
+            sPos.set(posX, posY, posZ);
+            sQuat.copy(targetQuat);
+            sScale = targetScale;
+            first = false;
           } else {
-            smoothPos.lerp(targetPos, 0.45);
-            smoothQuat.slerp(targetQuat, 0.5);
-            smoothScaleVal += (targetScale - smoothScaleVal) * 0.4;
+            sPos.lerp(new THREE.Vector3(posX, posY, posZ), 0.5);
+            sQuat.slerp(targetQuat, 0.55);
+            sScale += (targetScale - sScale) * 0.45;
           }
 
-          glassesContainer.position.copy(smoothPos);
-          glassesContainer.quaternion.copy(smoothQuat);
-          glassesContainer.scale.setScalar(smoothScaleVal);
-          glassesContainer.visible = true;
+          glassesGroup.position.copy(sPos);
+          glassesGroup.quaternion.copy(sQuat);
+          glassesGroup.scale.setScalar(sScale);
+          glassesGroup.visible = true;
         } else {
-          glassesContainer.visible = false;
-          firstDetection = true;
+          glassesGroup.visible = false;
+          first = true;
         }
       }
 
       renderer.render(scene, camera);
-      rafId = requestAnimationFrame(renderLoop);
+      requestAnimationFrame(render);
     }
 
-    function setupControls() {
-      const strip = document.getElementById("product-strip");
-
-      GLASSES_MODELS.forEach((model, i) => {
-        const card = document.createElement("div");
-        card.className = `product-card ${i === 0 ? "active" : ""}`;
-        card.innerHTML = `
-          <div class="name">${model.name}</div>
-          <div class="price">${model.price}</div>
-        `;
-        card.onclick = () => {
-          document.querySelectorAll(".product-card").forEach((c) => c.classList.remove("active"));
-          card.classList.add("active");
-          applyEyewear(model);
+    function setupUI() {
+      const dock = document.getElementById("dock");
+      MODELS.forEach((m, i) => {
+        const btn = document.createElement("button");
+        btn.className = `btn ${i === 0 ? "active" : ""}`;
+        btn.innerText = m.name;
+        btn.onclick = () => {
+          document.querySelectorAll(".btn").forEach(b => b.classList.remove("active"));
+          btn.classList.add("active");
+          currentModel = m;
+          buildFrames(m);
         };
-        strip.appendChild(card);
+        dock.appendChild(btn);
       });
-
-      document.getElementById("snapshot").onclick = () => {
-        if (!video?.videoWidth) return;
-
-        const snap = document.createElement("canvas");
-        snap.width = video.videoWidth;
-        snap.height = video.videoHeight;
-        const ctx = snap.getContext("2d");
-
-        ctx.save();
-        ctx.translate(snap.width, 0);
-        ctx.scale(-1, 1);
-        ctx.drawImage(video, 0, 0);
-        ctx.restore();
-
-        const threeCanvas = document.getElementById("three-canvas");
-        ctx.drawImage(threeCanvas, 0, 0, snap.width, snap.height);
-
-        const link = document.createElement("a");
-        link.download = `glasses-tryon-${Date.now()}.png`;
-        link.href = snap.toDataURL("image/png");
-        link.click();
-      };
     }
 
-    window.onload = async () => {
-      initScene();
-      setupControls();
-      await initMediaPipe();
-    };
+    window.onload = init;
   </script>
 </head>
 <body>
-  <div id="vrglasses-root">
-    <div id="loader-overlay">
-      <div class="spinner"></div>
-      <p id="loader-text">Preparing virtual try-on…</p>
-      <button class="action-btn" id="start-btn">Start Camera</button>
-      <p id="error-log"></p>
-    </div>
+  <div id="loader">
+    <div class="spin"></div>
+    <p>Calibrating Eye Landmarks...</p>
+  </div>
 
-    <div id="viewport">
-      <video id="webcam" playsinline autoplay muted></video>
-      <canvas id="three-canvas"></canvas>
-    </div>
-
-    <div id="dock">
-      <div id="product-strip"></div>
-      <div id="actions">
-        <button class="snapshot-btn" id="snapshot" title="Save photo">
-          <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
-            <circle cx="12" cy="13" r="4"/>
-          </svg>
-        </button>
-      </div>
-    </div>
+  <div id="viewport">
+    <video id="webcam" playsinline autoplay muted></video>
+    <canvas id="three-canvas"></canvas>
+    <nav id="dock"></nav>
   </div>
 </body>
 </html>
