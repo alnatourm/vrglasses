@@ -159,9 +159,7 @@
       headGroup = new THREE.Group();
       scene.add(headGroup);
 
-      // Occluder: Perfectly sized head sphere sitting safely behind the front frame plane
-      // Front frames are at Z = 0.22. This occluder starts at Z = -0.15 and goes back,
-      // so it will NEVER clip the front bridge or lenses, but WILL hide the far arm!
+      // Skull occluder for deep head depth clipping
       const occluderGeo = new THREE.SphereGeometry(0.82, 32, 24);
       occluderGeo.scale(0.85, 1.12, 1.05);
       const occluderMat = new THREE.MeshBasicMaterial({
@@ -255,36 +253,32 @@
       });
 
       // -------------------------------------------------------------
-      // TEMPLE ARMS:
-      // 1. Arm length tuned to 1.25 (stops right above the ear canal)
-      // 2. Geometry translated so front hinge is at Z = 0
-      // 3. Widened offset so the arm is strictly outside the lens frame
+      // TEMPLE ARMS: Full 1.58 length reaching completely behind the ear
       // -------------------------------------------------------------
-      const armLen = 1.25;
-      const armWidth = 0.014;
+      const armLen = 1.58;
+      const armWidth = 0.013;
       const armHeight = 0.020;
 
       const armGeo = new THREE.BoxGeometry(armWidth, armHeight, armLen);
-      armGeo.translate(0, 0, -armLen / 2); // Pivot is exactly at the front hinge
+      armGeo.translate(0, 0, -armLen / 2); // Front pivot rests on outer rim hinge
 
-      const armOffsetX = eyeSep + rimRadius + 0.015; // Placed outside the rim
-      const armOffsetY = 0.045;                      // Upper rim level
+      const armOffsetX = eyeSep + rimRadius + 0.012;
+      const armOffsetY = 0.045;
 
-      // Left Arm
+      // Left Temple
       leftArmMesh = new THREE.Mesh(armGeo, frameMat);
       leftArmMesh.position.set(-armOffsetX, armOffsetY, 0);
-      leftArmMesh.rotation.x = -0.06;
-      leftArmMesh.rotation.y = 0.08; // Flares out around the temple
+      leftArmMesh.rotation.x = -0.055; // Natural slope over top of ear
+      leftArmMesh.rotation.y = 0.07;   // Outward flare around the skull
       root.add(leftArmMesh);
 
-      // Right Arm
+      // Right Temple
       rightArmMesh = new THREE.Mesh(armGeo, frameMat);
       rightArmMesh.position.set(armOffsetX, armOffsetY, 0);
-      rightArmMesh.rotation.x = -0.06;
-      rightArmMesh.rotation.y = -0.08;
+      rightArmMesh.rotation.x = -0.055;
+      rightArmMesh.rotation.y = -0.07;
       root.add(rightArmMesh);
 
-      // Frame position
       root.position.set(0, -0.02, 0.22);
       glassesContainer.add(root);
     }
@@ -358,14 +352,12 @@
           headGroup.position.copy(smoothPos);
           headGroup.quaternion.copy(smoothQuat);
 
-          // Dynamic Arm Occlusion Culling:
-          // When head turns left/right past 18 degrees, hide the occluded temple arm entirely!
+          // Culls only the far-side arm when looking sharply away to prevent ocular clipping
           euler.setFromQuaternion(smoothQuat, 'YXZ');
           const yaw = euler.y;
           if (leftArmMesh && rightArmMesh) {
-            // If turning right, hide the right arm when it goes behind head; if left, hide left arm
-            leftArmMesh.visible = yaw > -0.28;
-            rightArmMesh.visible = yaw < 0.28;
+            leftArmMesh.visible = yaw > -0.32;
+            rightArmMesh.visible = yaw < 0.32;
           }
 
           headGroup.visible = true;
