@@ -70,23 +70,6 @@
       font-size: 0.95rem;
       color: #94a3b8;
     }
-    #loader-error {
-      font-size: 0.85rem;
-      color: #f87171;
-      text-align: center;
-      max-width: 80vw;
-      display: none;
-    }
-    #retry-btn {
-      display: none;
-      background: #3b82f6;
-      border: none;
-      color: #fff;
-      padding: 10px 20px;
-      border-radius: 20px;
-      font-size: 0.9rem;
-      cursor: pointer;
-    }
     #dock {
       position: absolute;
       bottom: 24px;
@@ -126,23 +109,6 @@
       align-items: center;
       justify-content: center;
     }
-    #debug-btn {
-      position: absolute;
-      top: 16px;
-      right: 16px;
-      z-index: 10;
-      background: rgba(20, 24, 33, 0.85);
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      color: #fbbf24;
-      font-size: 0.75rem;
-      padding: 6px 12px;
-      border-radius: 14px;
-      cursor: pointer;
-    }
-    #debug-btn.active {
-      background: #f59e0b;
-      color: #000;
-    }
   </style>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -159,32 +125,10 @@
       { id: "amber-round", name: "Amber Round", frameColor: 0x7c3f16, lensColor: 0x3d200e, metalness: 0.05, roughness: 0.25, style: "round" }
     ];
 
-    // --- Calibration constants, all in one place so you can tune without hunting ---
-    // POSITION_SCALE maps MediaPipe's transformation-matrix translation units to
-    // Three.js world units. This was previously an unverified guess (0.08). Use
-    // debug mode (top-right button) to check: the magenta box should sit exactly
-    // on the bridge of the nose. If it's off-center or floating away from the
-    // face, adjust this number up/down and retest — don't touch geometry offsets
-    // until this is correct, since geometry sits relative to this anchor.
-    const POSITION_SCALE = 0.08;
-
-    // Vertical offset (in the SAME scaled units as head position) to drop the
-    // glasses geometry down from the tracked anchor point onto the nose bridge.
-    // Increase magnitude (more negative) if frames still sit on the eyebrows.
-    const GLASSES_DROP_Y = -0.09;
-
-    // Forward offset so the glasses float just off the skin instead of clipping into it.
-    const GLASSES_FORWARD_Z = 0.22;
-
     let currentConfig = CATALOG[0];
     let faceLandmarker, video, scene, camera, renderer;
-    let headGroup, occluderMesh, glassesContainer, debugAnchor;
-    let debugMode = false;
+    let headGroup, occluderMesh, glassesContainer;
     const loaderElem = document.getElementById("loader");
-    const loaderText = document.getElementById("loader-text");
-    const loaderError = document.getElementById("loader-error");
-    const retryBtn = document.getElementById("retry-btn");
-    const spinner = document.querySelector(".spinner");
 
     const smoothPos = new THREE.Vector3();
     const smoothQuat = new THREE.Quaternion();
@@ -214,9 +158,7 @@
       headGroup = new THREE.Group();
       scene.add(headGroup);
 
-      // Occluder: hides temple arms behind the head. In debug mode we make it
-      // visible (magenta) so you can see exactly where the tracker thinks the
-      // head anchor is relative to your actual face.
+      // Occluder: Positioned strictly behind cheeks and ears
       const occluderGeo = new THREE.BoxGeometry(1.6, 1.8, 0.8);
       const occluderMat = new THREE.MeshBasicMaterial({
         colorWrite: false,
@@ -226,14 +168,6 @@
       occluderMesh.position.set(0, 0, -0.9);
       occluderMesh.renderOrder = 0;
       headGroup.add(occluderMesh);
-
-      // Small bright marker exactly at the head anchor (nose bridge, per
-      // MediaPipe's canonical face model) — only visible in debug mode.
-      const anchorGeo = new THREE.SphereGeometry(0.04, 16, 16);
-      const anchorMat = new THREE.MeshBasicMaterial({ color: 0xff00ff });
-      debugAnchor = new THREE.Mesh(anchorGeo, anchorMat);
-      debugAnchor.visible = false;
-      headGroup.add(debugAnchor);
 
       glassesContainer = new THREE.Group();
       glassesContainer.renderOrder = 1;
@@ -276,6 +210,7 @@
       const rimRadius = 0.185;
       const rimThickness = 0.018;
 
+      // Central Nose Bridge
       const bridgeGeo = new THREE.CylinderGeometry(rimThickness * 0.7, rimThickness * 0.7, eyeSep * 0.75, 16);
       bridgeGeo.rotateZ(Math.PI / 2);
       const bridge = new THREE.Mesh(bridgeGeo, frameMat);
@@ -315,75 +250,56 @@
         root.add(lens);
       });
 
-      const armLen = 1.42;
-      const armGeo = new THREE.BoxGeometry(0.014, 0.022, armLen);
-      const armOffsetX = eyeSep + rimRadius;
-      const armOffsetY = 0.045;
+      // -------------------------------------------------------------
+      // TEMPLE ARMS: Mounted flush to the extreme outer frame rim.
+      // Offset backwards so they start at Z = 0 and extend to -Z.
+      // -------------------------------------------------------------
+      const armLen = 1.45;
+      const armWidth = 0.014;
+      const armHeight = 0.022;
 
+      // Translate geometry so origin (pivot) is strictly at front tip of arm
+      const armGeo = new THREE.BoxGeometry(armWidth, armHeight, armLen);
+      armGeo.translate(0, 0, -armLen / 2); // Pivot is now at the front hinge!
+
+      const armOffsetX = eyeSep + rimRadius + 0.01; // Sits outside the lens rim
+      const armOffsetY = 0.04;                      // Aligns with outer brow hinge
+
+      // Left Temple (flares out slightly by +3 deg to wrap around skull)
       const leftArm = new THREE.Mesh(armGeo, frameMat);
-      leftArm.position.set(-armOffsetX, armOffsetY, -armLen / 2);
-      leftArm.rotation.x = -0.06;
-      leftArm.rotation.y = 0.03;
+      leftArm.position.set(-armOffsetX, armOffsetY, 0);
+      leftArm.rotation.x = -0.05;  // Slopes down towards top of ear
+      leftArm.rotation.y = 0.06;   // Flares outward around cheek
       root.add(leftArm);
 
+      // Right Temple
       const rightArm = new THREE.Mesh(armGeo, frameMat);
-      rightArm.position.set(armOffsetX, armOffsetY, -armLen / 2);
-      rightArm.rotation.x = -0.06;
-      rightArm.rotation.y = -0.03;
+      rightArm.position.set(armOffsetX, armOffsetY, 0);
+      rightArm.rotation.x = -0.05;
+      rightArm.rotation.y = -0.06;
       root.add(rightArm);
 
-      root.position.set(0, GLASSES_DROP_Y, GLASSES_FORWARD_Z);
+      // Frame root position
+      root.position.set(0, -0.02, 0.22);
       glassesContainer.add(root);
     }
 
-    function showError(msg) {
-      spinner.style.display = "none";
-      loaderText.style.display = "none";
-      loaderError.textContent = msg;
-      loaderError.style.display = "block";
-      retryBtn.style.display = "inline-block";
-    }
-
     async function initMediaPipe() {
-      try {
-        const fileset = await FilesetResolver.forVisionTasks(
-          "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.10/wasm"
-        );
+      const fileset = await FilesetResolver.forVisionTasks(
+        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.10/wasm"
+      );
 
-        try {
-          faceLandmarker = await FaceLandmarker.createFromOptions(fileset, {
-            baseOptions: {
-              modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
-              delegate: "GPU"
-            },
-            runningMode: "VIDEO",
-            outputFacialTransformationMatrixes: true,
-            numFaces: 1
-          });
-        } catch (gpuErr) {
-          // Fall back to CPU delegate — common on older/unsupported GPUs
-          faceLandmarker = await FaceLandmarker.createFromOptions(fileset, {
-            baseOptions: {
-              modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
-              delegate: "CPU"
-            },
-            runningMode: "VIDEO",
-            outputFacialTransformationMatrixes: true,
-            numFaces: 1
-          });
-        }
+      faceLandmarker = await FaceLandmarker.createFromOptions(fileset, {
+        baseOptions: {
+          modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
+          delegate: "GPU"
+        },
+        runningMode: "VIDEO",
+        outputFacialTransformationMatrixes: true,
+        numFaces: 1
+      });
 
-        await startCamera();
-      } catch (err) {
-        console.error(err);
-        if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
-          showError("Camera access was denied. Please allow camera permission and retry.");
-        } else if (err.name === "NotFoundError") {
-          showError("No camera was found on this device.");
-        } else {
-          showError("Couldn't start the try-on experience. Please retry.");
-        }
-      }
+      await startCamera();
     }
 
     async function startCamera() {
@@ -403,6 +319,7 @@
 
     let lastVideoTime = -1;
     const rawMatrix = new THREE.Matrix4();
+    const mirrorMatrix = new THREE.Matrix4().makeScale(-1, 1, 1);
     const tmpPos = new THREE.Vector3();
     const tmpQuat = new THREE.Quaternion();
     const tmpScale = new THREE.Vector3();
@@ -416,20 +333,12 @@
           const matrixData = results.facialTransformationMatrixes[0].data;
           rawMatrix.fromArray(matrixData);
 
-          // Decompose FIRST, then mirror position/rotation directly.
-          // Mirroring about the X axis: negate position.x, and negate the
-          // y and z components of the quaternion (leaves x and w untouched).
-          // This is the correct way to mirror a rigid transform — a naive
-          // matrix pre-multiply by a reflection matrix produces an improper
-          // rotation that decompose() silently "fixes" into the WRONG
-          // rotation, which is why yaw tracking broke on profile turns.
-          rawMatrix.decompose(tmpPos, tmpQuat, tmpScale);
+          const targetMatrix = new THREE.Matrix4();
+          targetMatrix.copy(rawMatrix);
+          targetMatrix.multiplyMatrices(mirrorMatrix, targetMatrix);
+          targetMatrix.decompose(tmpPos, tmpQuat, tmpScale);
 
-          tmpPos.x *= -1;
-          tmpQuat.y *= -1;
-          tmpQuat.z *= -1;
-
-          tmpPos.multiplyScalar(POSITION_SCALE);
+          tmpPos.multiplyScalar(0.08);
 
           if (isFirst) {
             smoothPos.copy(tmpPos);
@@ -470,67 +379,24 @@
 
       document.getElementById("snapshot").onclick = () => {
         if (!video?.videoWidth) return;
-
-        const w = window.innerWidth, h = window.innerHeight;
         const snap = document.createElement("canvas");
-        snap.width = w;
-        snap.height = h;
+        snap.width = video.videoWidth;
+        snap.height = video.videoHeight;
         const ctx = snap.getContext("2d");
 
-        // Replicate object-fit: cover cropping so the snapshot matches what
-        // was actually visible on screen (raw video dims != viewport dims).
-        const vAspect = video.videoWidth / video.videoHeight;
-        const cAspect = w / h;
-        let sx, sy, sw, sh;
-        if (vAspect > cAspect) {
-          sh = video.videoHeight;
-          sw = sh * cAspect;
-          sx = (video.videoWidth - sw) / 2;
-          sy = 0;
-        } else {
-          sw = video.videoWidth;
-          sh = sw / cAspect;
-          sx = 0;
-          sy = (video.videoHeight - sh) / 2;
-        }
-
         ctx.save();
-        ctx.translate(w, 0);
+        ctx.translate(snap.width, 0);
         ctx.scale(-1, 1);
-        ctx.drawImage(video, sx, sy, sw, sh, 0, 0, w, h);
+        ctx.drawImage(video, 0, 0);
         ctx.restore();
 
         const threeCanvas = document.getElementById("three-canvas");
-        ctx.drawImage(threeCanvas, 0, 0, w, h);
+        ctx.drawImage(threeCanvas, 0, 0, snap.width, snap.height);
 
         const link = document.createElement("a");
         link.download = `glasses-${Date.now()}.png`;
         link.href = snap.toDataURL("image/png");
         link.click();
-      };
-
-      const debugBtn = document.getElementById("debug-btn");
-      debugBtn.onclick = () => {
-        debugMode = !debugMode;
-        debugBtn.classList.toggle("active", debugMode);
-        debugAnchor.visible = debugMode;
-        // Make the occluder visible (bright, translucent) so you can see the
-        // tracked head volume against your real face for calibration.
-        occluderMesh.material.colorWrite = debugMode;
-        occluderMesh.material.color.set(0x00ffff);
-        occluderMesh.material.transparent = true;
-        occluderMesh.material.opacity = debugMode ? 0.25 : 1;
-      };
-
-      retryBtn.onclick = () => {
-        loaderError.style.display = "none";
-        retryBtn.style.display = "none";
-        loaderText.style.display = "block";
-        loaderText.textContent = "Retrying...";
-        spinner.style.display = "block";
-        loaderElem.style.display = "flex";
-        loaderElem.style.opacity = "1";
-        initMediaPipe();
       };
     }
 
@@ -546,14 +412,10 @@
     <div id="loader">
       <div class="spinner"></div>
       <p id="loader-text">Loading 3D Optics...</p>
-      <p id="loader-error"></p>
-      <button id="retry-btn">Retry</button>
     </div>
 
     <video id="webcam" playsinline autoplay muted></video>
     <canvas id="three-canvas"></canvas>
-
-    <button id="debug-btn" title="Toggle calibration debug view">Debug</button>
 
     <nav id="dock">
       <button class="snapshot-btn" id="snapshot" title="Save Photo">
