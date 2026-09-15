@@ -120,33 +120,9 @@
     } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.10";
 
     const CATALOG = [
-      {
-        id: "classic-black",
-        name: "Wayfarer Black",
-        frameColor: 0x18181b,
-        lensColor: 0x0f172a,
-        metalness: 0.1,
-        roughness: 0.2,
-        style: "square"
-      },
-      {
-        id: "aviator-gold",
-        name: "Aviator Gold",
-        frameColor: 0xd4af37,
-        lensColor: 0x142b1e,
-        metalness: 0.85,
-        roughness: 0.08,
-        style: "aviator"
-      },
-      {
-        id: "amber-round",
-        name: "Amber Round",
-        frameColor: 0x7c3f16,
-        lensColor: 0x3d200e,
-        metalness: 0.05,
-        roughness: 0.25,
-        style: "round"
-      }
+      { id: "classic-black", name: "Wayfarer Black", frameColor: 0x18181b, lensColor: 0x0f172a, metalness: 0.1, roughness: 0.2, style: "square" },
+      { id: "aviator-gold", name: "Aviator Gold", frameColor: 0xd4af37, lensColor: 0x142b1e, metalness: 0.85, roughness: 0.08, style: "aviator" },
+      { id: "amber-round", name: "Amber Round", frameColor: 0x7c3f16, lensColor: 0x3d200e, metalness: 0.05, roughness: 0.25, style: "round" }
     ];
 
     let currentConfig = CATALOG[0];
@@ -175,7 +151,7 @@
       renderer.setSize(window.innerWidth, window.innerHeight);
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
-      scene.add(new THREE.AmbientLight(0xffffff, 1.6));
+      scene.add(new THREE.AmbientLight(0xffffff, 1.8));
       const dirLight = new THREE.DirectionalLight(0xffffff, 1.8);
       dirLight.position.set(1.5, 3, 3);
       scene.add(dirLight);
@@ -216,8 +192,8 @@
         depthWrite: false
       });
 
-      const eyeSep = 0.38;
-      const rimRadius = 0.24;
+      const eyeSep = 0.36;
+      const rimRadius = 0.23;
       const rimThickness = 0.022;
 
       // Central Nose Bridge
@@ -232,7 +208,6 @@
         root.add(topBar);
       }
 
-      // Left & Right Lenses and Rims
       [-eyeSep, eyeSep].forEach((x) => {
         let rimGeo, lensGeo;
 
@@ -260,16 +235,18 @@
         root.add(lens);
       });
 
-      // Frame Temples
+      // Frame Temples: Extrude strictly into NEGATIVE Z (backwards toward ears)
       const armLen = 1.35;
       const armGeo = new THREE.BoxGeometry(0.016, 0.024, armLen);
       const armOffset = eyeSep + rimRadius;
 
+      // Left Temple
       const leftArm = new THREE.Mesh(armGeo, frameMat);
       leftArm.position.set(-armOffset, -0.02, -armLen / 2);
       leftArm.rotation.y = 0.04;
       root.add(leftArm);
 
+      // Right Temple
       const rightArm = new THREE.Mesh(armGeo, frameMat);
       rightArm.position.set(armOffset, -0.02, -armLen / 2);
       rightArm.rotation.y = -0.04;
@@ -326,37 +303,40 @@
           const pRightEye = lms[263];    // Right eye outer corner
           const pForehead = lms[10];     // Forehead
 
-          // Perspective Viewport Space at camera.position.z = 3.5
+          // Perspective Viewport Space
           const zCam = 3.5;
           const vFOV = THREE.MathUtils.degToRad(camera.fov);
           const visibleHeight = 2 * Math.tan(vFOV / 2) * zCam;
           const visibleWidth = visibleHeight * camera.aspect;
 
-          // Push glasses slightly forward (+0.08) so they float on top of the skin, not inside
+          // Align Y to pupil center and push forward on Z
           const targetX = -(pBridge.x - 0.5) * visibleWidth;
-          const targetY = -(pBridge.y - 0.5) * visibleHeight;
-          const targetZ = zCam - 3.5 - (pBridge.z * 1.5) + 0.08;
+          const targetY = -(pBridge.y - 0.5) * visibleHeight - 0.12; 
+          const targetZ = zCam - 3.5 - (pBridge.z * 1.5) + 0.05;
 
-          // Orthonormal Basis Vector Rotation
+          // Orthonormal Basis Vector Rotation (Correct Face Direction)
+          // X: Interpupillary eye line
           const vecX = new THREE.Vector3(
             -(pRightEye.x - pLeftEye.x) * visibleWidth,
             -(pRightEye.y - pLeftEye.y) * visibleHeight,
             -(pRightEye.z - pLeftEye.z) * 2.0
           ).normalize();
 
+          // Y: Vertical head axis
           const vecY = new THREE.Vector3(
             -(pForehead.x - pBridge.x) * visibleWidth,
             -(pForehead.y - pBridge.y) * visibleHeight,
             -(pForehead.z - pBridge.z) * 2.0
           ).normalize();
 
+          // Z: Points straight out of face (+Z into screen, arms reach -Z)
           const vecZ = new THREE.Vector3().crossVectors(vecX, vecY).normalize();
           const correctedY = new THREE.Vector3().crossVectors(vecZ, vecX).normalize();
 
           const rotMatrix = new THREE.Matrix4().makeBasis(vecX, correctedY, vecZ);
           const targetQuat = new THREE.Quaternion().setFromRotationMatrix(rotMatrix);
 
-          // Real-time Pupillary Span Scale
+          // Eye-to-Eye Span Scale
           const eyeSpan = Math.hypot(
             (pRightEye.x - pLeftEye.x) * visibleWidth,
             (pRightEye.y - pLeftEye.y) * visibleHeight
