@@ -91,9 +91,6 @@
       font-weight: 600;
       cursor: pointer;
     }
-    .action-btn:active {
-      transform: scale(0.97);
-    }
     #error-log {
       color: #f87171;
       font-size: 0.9rem;
@@ -103,20 +100,6 @@
       padding: 12px 18px;
       border-radius: 12px;
       line-height: 1.4;
-    }
-    #paused-banner {
-      position: absolute;
-      top: 16px;
-      left: 50%;
-      transform: translateX(-50%);
-      background: rgba(15, 23, 42, 0.92);
-      color: #94a3b8;
-      font-size: 0.8rem;
-      padding: 7px 16px;
-      border-radius: 20px;
-      z-index: 15;
-      display: none;
-      backdrop-filter: blur(8px);
     }
     #dock {
       position: absolute;
@@ -192,21 +175,6 @@
     .snapshot-btn:active {
       transform: scale(0.94);
     }
-    #face-hint {
-      position: absolute;
-      top: 20px;
-      left: 50%;
-      transform: translateX(-50%);
-      background: rgba(15, 23, 42, 0.75);
-      color: #e2e8f0;
-      font-size: 0.8rem;
-      padding: 8px 16px;
-      border-radius: 20px;
-      z-index: 12;
-      display: none;
-      backdrop-filter: blur(6px);
-      pointer-events: none;
-    }
   </style>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -222,14 +190,11 @@
         id: "classic-black",
         name: "Classic Black",
         price: "$89",
-        frameColor: 0x1c1917,
+        frameColor: 0x18181b,
         lensColor: 0x0f172a,
-        roughness: 0.25,
+        roughness: 0.2,
         metalness: 0.1,
-        style: "classic",
-        scale: 0.90,
-        offsetY: 0.02,
-        offsetZ: 0.36
+        style: "classic"
       },
       {
         id: "aviator-gold",
@@ -239,10 +204,7 @@
         lensColor: 0x1a2e1a,
         roughness: 0.08,
         metalness: 0.85,
-        style: "aviator",
-        scale: 0.92,
-        offsetY: 0.01,
-        offsetZ: 0.38
+        style: "aviator"
       },
       {
         id: "amber-round",
@@ -250,18 +212,15 @@
         price: "$99",
         frameColor: 0x7c3f16,
         lensColor: 0x3d200e,
-        roughness: 0.3,
+        roughness: 0.25,
         metalness: 0.05,
-        style: "round",
-        scale: 0.88,
-        offsetY: 0.03,
-        offsetZ: 0.36
+        style: "round"
       }
     ];
 
     let faceLandmarker = null;
     let video, scene, camera, renderer;
-    let headGroup, glassesContainer;
+    let glassesContainer;
     let stream = null;
     let running = false;
     let rafId = null;
@@ -273,47 +232,46 @@
     const loaderText = document.getElementById("loader-text");
     const spinnerElem = document.querySelector(".spinner");
     const startBtn = document.getElementById("start-btn");
-    const retryBtn = document.getElementById("retry-btn");
     const errorLog = document.getElementById("error-log");
-    const pausedBanner = document.getElementById("paused-banner");
-    const faceHint = document.getElementById("face-hint");
 
     const smoothPos = new THREE.Vector3();
     const smoothQuat = new THREE.Quaternion();
+    let smoothScaleVal = 1.0;
+
+    // Key MediaPipe Landmark indices
+    const LM = {
+      NOSE_BRIDGE: 168,     // Directly between the eyes (exact saddle of the nose)
+      LEFT_EYE: 33,         // Left outer eye corner
+      RIGHT_EYE: 263,       // Right outer eye corner
+      FOREHEAD: 10,         // Upper forehead
+      CHIN: 152             // Center of the chin
+    };
 
     function initScene() {
       const canvas = document.getElementById("three-canvas");
       scene = new THREE.Scene();
 
       camera = new THREE.PerspectiveCamera(45, rootElem.clientWidth / rootElem.clientHeight, 0.1, 100);
-      camera.position.set(0, 0, 0);
+      camera.position.set(0, 0, 5); // Stand back on Z to project screen-space landmarks accurately
 
       renderer = new THREE.WebGLRenderer({
         canvas,
         alpha: true,
         antialias: true,
-        preserveDrawingBuffer: true,
-        powerPreference: "high-performance"
+        preserveDrawingBuffer: true
       });
       renderer.setSize(rootElem.clientWidth, rootElem.clientHeight);
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
-      const ambient = new THREE.AmbientLight(0xffffff, 1.6);
+      const ambient = new THREE.AmbientLight(0xffffff, 1.8);
       scene.add(ambient);
 
       const key = new THREE.DirectionalLight(0xffffff, 2.0);
-      key.position.set(1.2, 2.5, 2.0);
+      key.position.set(1.5, 3, 3);
       scene.add(key);
 
-      const fill = new THREE.DirectionalLight(0xb0c4de, 0.8);
-      fill.position.set(-1.5, 0.5, 1.0);
-      scene.add(fill);
-
-      headGroup = new THREE.Group();
-      scene.add(headGroup);
-
       glassesContainer = new THREE.Group();
-      headGroup.add(glassesContainer);
+      scene.add(glassesContainer);
 
       buildProceduralEyewear(currentConfig);
 
@@ -343,7 +301,6 @@
     }
 
     function applyEyewear(config) {
-      clearGlassesContainer();
       currentConfig = config;
       buildProceduralEyewear(config);
     }
@@ -362,255 +319,139 @@
         color: config.lensColor,
         metalness: 0,
         roughness: 0.05,
-        transmission: 0.85,
-        thickness: 0.08,
+        transmission: 0.84,
+        thickness: 0.05,
         ior: 1.5,
         transparent: true,
         opacity: 0.72,
         depthWrite: false
       });
 
-      const style = config.style || "classic";
-      if (style === "aviator") buildAviator(group, frameMat, lensMat);
-      else if (style === "round") buildRound(group, frameMat, lensMat);
-      else buildClassic(group, frameMat, lensMat);
+      const eyeSep = 0.38;
+      const rimRadius = 0.24;
+      const thickness = 0.022;
 
-      group.scale.setScalar(config.scale);
-      group.position.set(0, config.offsetY, config.offsetZ);
+      // Solid Nose Bridge
+      const bridge = new THREE.Mesh(
+        new THREE.CylinderGeometry(thickness * 0.7, thickness * 0.7, eyeSep * 0.85, 16),
+        frameMat
+      );
+      bridge.rotation.z = Math.PI / 2;
+      bridge.position.set(0, 0, 0);
+      group.add(bridge);
+
+      // Left & Right Lenses and Rims
+      [-eyeSep, eyeSep].forEach((x) => {
+        let rimGeo, lensGeo;
+
+        if (config.style === "aviator") {
+          rimGeo = new THREE.TorusGeometry(rimRadius, 0.016, 12, 36);
+          const rim = new THREE.Mesh(rimGeo, frameMat);
+          rim.scale.set(1.05, 1.25, 1);
+          rim.position.set(x, -0.04, 0);
+          group.add(rim);
+
+          lensGeo = new THREE.CircleGeometry(rimRadius * 0.95, 32);
+          const lens = new THREE.Mesh(lensGeo, lensMat);
+          lens.scale.set(1.05, 1.25, 1);
+          lens.position.set(x, -0.04, 0.002);
+          group.add(lens);
+        } else {
+          rimGeo = new THREE.TorusGeometry(rimRadius, thickness, 14, 40);
+          const rim = new THREE.Mesh(rimGeo, frameMat);
+          rim.position.set(x, 0, 0);
+          group.add(rim);
+
+          lensGeo = new THREE.CircleGeometry(rimRadius * 0.95, 36);
+          const lens = new THREE.Mesh(lensGeo, lensMat);
+          lens.position.set(x, 0, 0.002);
+          group.add(lens);
+        }
+      });
+
+      // Temples / Arms (Angled backwards to hug the head)
+      const templeLength = 1.4;
+      const templeGeo = new THREE.BoxGeometry(0.016, 0.024, templeLength);
+      const templeOffset = eyeSep + rimRadius;
+
+      const leftTemple = new THREE.Mesh(templeGeo, frameMat);
+      leftTemple.position.set(-templeOffset, -0.03, -templeLength / 2);
+      leftTemple.rotation.x = -0.06;
+      leftTemple.rotation.y = 0.06;
+      group.add(leftTemple);
+
+      const rightTemple = new THREE.Mesh(templeGeo, frameMat);
+      rightTemple.position.set(templeOffset, -0.03, -templeLength / 2);
+      rightTemple.rotation.x = -0.06;
+      rightTemple.rotation.y = -0.06;
+      group.add(rightTemple);
+
       glassesContainer.add(group);
-    }
-
-    function buildClassic(group, frameMat, lensMat) {
-      const eyeSep = 0.32;
-      const thickness = 0.02;
-
-      // Solid raised bridge
-      const bridge = new THREE.Mesh(
-        new THREE.BoxGeometry(0.16, 0.022, 0.02),
-        frameMat
-      );
-      bridge.position.set(0, 0.035, 0);
-      group.add(bridge);
-
-      [-eyeSep, eyeSep].forEach((x) => {
-        const rim = new THREE.Mesh(
-          new THREE.TorusGeometry(0.20, thickness, 16, 40),
-          frameMat
-        );
-        rim.scale.set(1.15, 0.95, 1);
-        rim.position.set(x, 0, 0);
-        group.add(rim);
-
-        const lens = new THREE.Mesh(
-          new THREE.CircleGeometry(0.185, 36),
-          lensMat
-        );
-        lens.position.set(x, 0, 0.002);
-        group.add(lens);
-      });
-
-      addTemples(group, frameMat, eyeSep + 0.23);
-    }
-
-    function buildAviator(group, frameMat, lensMat) {
-      const eyeSep = 0.33;
-
-      const bridge = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.014, 0.014, 0.15, 16),
-        frameMat
-      );
-      bridge.rotation.z = Math.PI / 2;
-      bridge.position.set(0, 0.04, 0);
-      group.add(bridge);
-
-      const topBar = new THREE.Mesh(
-        new THREE.BoxGeometry(0.60, 0.014, 0.016),
-        frameMat
-      );
-      topBar.position.set(0, 0.11, 0);
-      group.add(topBar);
-
-      [-eyeSep, eyeSep].forEach((x) => {
-        const rim = new THREE.Mesh(
-          new THREE.TorusGeometry(0.20, 0.016, 14, 40),
-          frameMat
-        );
-        rim.scale.set(1.05, 1.25, 1);
-        rim.position.set(x, -0.02, 0);
-        group.add(rim);
-
-        const lens = new THREE.Mesh(
-          new THREE.CircleGeometry(0.185, 36),
-          lensMat
-        );
-        lens.scale.set(1.05, 1.22, 1);
-        lens.position.set(x, -0.02, 0.002);
-        group.add(lens);
-      });
-
-      addTemples(group, frameMat, eyeSep + 0.22);
-    }
-
-    function buildRound(group, frameMat, lensMat) {
-      const eyeSep = 0.31;
-      const radius = 0.22;
-      const thick = 0.019;
-
-      const bridge = new THREE.Mesh(
-        new THREE.CylinderGeometry(thick * 0.8, thick * 0.8, 0.15, 16),
-        frameMat
-      );
-      bridge.rotation.z = Math.PI / 2;
-      bridge.position.set(0, 0.03, 0);
-      group.add(bridge);
-
-      [-eyeSep, eyeSep].forEach((x) => {
-        const rim = new THREE.Mesh(
-          new THREE.TorusGeometry(radius, thick, 16, 44),
-          frameMat
-        );
-        rim.position.set(x, 0, 0);
-        group.add(rim);
-
-        const lens = new THREE.Mesh(
-          new THREE.CircleGeometry(radius - 0.003, 40),
-          lensMat
-        );
-        lens.position.set(x, 0, 0.002);
-        group.add(lens);
-      });
-
-      addTemples(group, frameMat, eyeSep + radius + 0.005);
-    }
-
-    function addTemples(group, frameMat, startX) {
-      const len = 1.45;
-      const geo = new THREE.BoxGeometry(0.018, 0.026, len);
-
-      const left = new THREE.Mesh(geo, frameMat);
-      left.position.set(-startX, -0.025, -len * 0.48);
-      left.rotation.x = -0.05;
-      left.rotation.y = 0.04;
-      group.add(left);
-
-      const right = new THREE.Mesh(geo, frameMat);
-      right.position.set(startX, -0.025, -len * 0.48);
-      right.rotation.x = -0.05;
-      right.rotation.y = -0.04;
-      group.add(right);
     }
 
     async function initMediaPipe() {
       try {
-        loaderText.textContent = "Loading face tracking models…";
+        loaderText.textContent = "Loading eye & face detection…";
         const fileset = await FilesetResolver.forVisionTasks(
           "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.10/wasm"
         );
 
-        const baseOpts = {
-          modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task"
-        };
-
-        try {
-          faceLandmarker = await FaceLandmarker.createFromOptions(fileset, {
-            baseOptions: { ...baseOpts, delegate: "GPU" },
-            runningMode: "VIDEO",
-            outputFacialTransformationMatrixes: true,
-            numFaces: 1
-          });
-        } catch (gpuErr) {
-          faceLandmarker = await FaceLandmarker.createFromOptions(fileset, {
-            baseOptions: { ...baseOpts, delegate: "CPU" },
-            runningMode: "VIDEO",
-            outputFacialTransformationMatrixes: true,
-            numFaces: 1
-          });
-        }
+        faceLandmarker = await FaceLandmarker.createFromOptions(fileset, {
+          baseOptions: {
+            modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
+            delegate: "GPU"
+          },
+          runningMode: "VIDEO",
+          numFaces: 1
+        });
 
         loaderText.textContent = "Starting camera…";
         await startCamera();
       } catch (err) {
-        showError("Initialization error: " + err.message, { showRetry: true });
+        showError("Initialization error: " + err.message);
       }
     }
 
-    async function startCamera(facingMode = "user") {
+    async function startCamera() {
       video = document.getElementById("webcam");
-
-      if (!window.isSecureContext) {
-        showError("Camera requires an HTTPS connection.");
-        return;
-      }
-      if (!navigator.mediaDevices?.getUserMedia) {
-        showError("Camera access is not supported by this browser.");
-        return;
-      }
-
       try {
         stream = await navigator.mediaDevices.getUserMedia({
           video: {
             width: { ideal: 1280 },
             height: { ideal: 720 },
-            facingMode
+            facingMode: "user"
           },
           audio: false
         });
         video.srcObject = stream;
 
-        let started = false;
-        const begin = () => {
-          if (started) return;
-          started = true;
-          video.play().catch(() => {});
-          hideLoader();
+        video.onloadeddata = () => {
+          video.play();
+          loaderElem.style.opacity = "0";
+          setTimeout(() => { loaderElem.style.display = "none"; }, 400);
           running = true;
-          faceHint.style.display = "block";
-          setTimeout(() => { faceHint.style.display = "none"; }, 3500);
           rafId = requestAnimationFrame(renderLoop);
         };
-
-        video.onloadeddata = begin;
-        setTimeout(begin, 1600);
       } catch (err) {
-        if (err.name === "OverconstrainedError" && facingMode) {
-          return startCamera(undefined);
-        }
         spinnerElem.style.display = "none";
         loaderText.textContent = "Camera permission needed";
         startBtn.style.display = "inline-block";
-        startBtn.textContent = "Allow Camera Access";
         startBtn.onclick = async () => {
           startBtn.style.display = "none";
           spinnerElem.style.display = "block";
-          loaderText.textContent = "Starting camera…";
           await startCamera();
         };
       }
     }
 
-    function hideLoader() {
-      loaderElem.style.opacity = "0";
-      setTimeout(() => { loaderElem.style.display = "none"; }, 400);
-    }
-
-    function showError(msg, opts = {}) {
+    function showError(msg) {
       spinnerElem.style.display = "none";
       loaderText.style.display = "none";
-      startBtn.style.display = "none";
       errorLog.style.display = "block";
       errorLog.textContent = msg;
-      if (opts.showRetry) {
-        retryBtn.style.display = "inline-block";
-        retryBtn.onclick = () => location.reload();
-      }
     }
 
     let lastVideoTime = -1;
-    const rawMatrix = new THREE.Matrix4();
-    const mirrorMat = new THREE.Matrix4().makeScale(-1, 1, 1);
-    const tmpPos = new THREE.Vector3();
-    const tmpQuat = new THREE.Quaternion();
-    const tmpScale = new THREE.Vector3();
 
     function renderLoop() {
       if (!running) return;
@@ -620,62 +461,69 @@
 
         const results = faceLandmarker.detectForVideo(video, performance.now());
 
-        if (results.facialTransformationMatrixes?.length > 0) {
-          const matrixData = results.facialTransformationMatrixes[0].data;
-          rawMatrix.fromArray(matrixData);
+        if (results.faceLandmarks && results.faceLandmarks.length > 0) {
+          const lms = results.faceLandmarks[0];
 
-          const targetMatrix = new THREE.Matrix4();
-          targetMatrix.copy(rawMatrix);
-          targetMatrix.multiplyMatrices(mirrorMat, targetMatrix);
-          targetMatrix.decompose(tmpPos, tmpQuat, tmpScale);
+          // 1. Direct Landmark Anchors
+          const bridge = lms[LM.NOSE_BRIDGE];
+          const leftEye = lms[LM.LEFT_EYE];
+          const rightEye = lms[LM.RIGHT_EYE];
+          const topForehead = lms[LM.FOREHEAD];
+          const chin = lms[LM.CHIN];
 
-          tmpPos.multiplyScalar(0.08);
+          // 2. Map Normalized Coordinates (0-1) to Three.js Viewport Space
+          // Inverted X to match the mirrored selfie camera
+          const targetX = -(bridge.x - 0.5) * 4.2;
+          const targetY = -(bridge.y - 0.5) * 4.2 * (camera.aspect < 1 ? 1.6 : 1.0);
+          const targetZ = 5 - (bridge.z * 5.0) - 3.2;
 
+          const targetPos = new THREE.Vector3(targetX, targetY, targetZ);
+
+          // 3. True Facial Rotations Calculated from Landmark Vectors
+          // Roll (head tilting left/right): Angle between the two eyes
+          const eyeDeltaX = -(rightEye.x - leftEye.x);
+          const eyeDeltaY = (rightEye.y - leftEye.y);
+          const roll = Math.atan2(eyeDeltaY, eyeDeltaX);
+
+          // Pitch (looking up/down): Angle between forehead and chin
+          const pitch = (chin.z - topForehead.z) * 2.8;
+
+          // Yaw (turning side-to-side): Depth difference between eyes
+          const yaw = (rightEye.z - leftEye.z) * 3.2;
+
+          const targetQuat = new THREE.Quaternion().setFromEuler(
+            new THREE.Euler(pitch, yaw, roll, "YXZ")
+          );
+
+          // 4. Exact Scale from Real Eye-to-Eye Span
+          const eyeDistance = Math.hypot((rightEye.x - leftEye.x), (rightEye.y - leftEye.y));
+          const targetScale = eyeDistance * 3.4;
+
+          // 5. Smooth Interpolation to absorb jitter
           if (firstDetection) {
-            smoothPos.copy(tmpPos);
-            smoothQuat.copy(tmpQuat);
+            smoothPos.copy(targetPos);
+            smoothQuat.copy(targetQuat);
+            smoothScaleVal = targetScale;
             firstDetection = false;
           } else {
-            smoothPos.lerp(tmpPos, 0.48);
-            smoothQuat.slerp(tmpQuat, 0.55);
+            smoothPos.lerp(targetPos, 0.45);
+            smoothQuat.slerp(targetQuat, 0.5);
+            smoothScaleVal += (targetScale - smoothScaleVal) * 0.4;
           }
 
-          headGroup.position.copy(smoothPos);
-          headGroup.quaternion.copy(smoothQuat);
-          headGroup.visible = true;
-          faceHint.style.display = "none";
+          glassesContainer.position.copy(smoothPos);
+          glassesContainer.quaternion.copy(smoothQuat);
+          glassesContainer.scale.setScalar(smoothScaleVal);
+          glassesContainer.visible = true;
         } else {
-          headGroup.visible = false;
+          glassesContainer.visible = false;
           firstDetection = true;
-          faceHint.style.display = "block";
-          faceHint.textContent = "Center your face in the frame";
         }
       }
 
       renderer.render(scene, camera);
       rafId = requestAnimationFrame(renderLoop);
     }
-
-    function pauseAll() {
-      if (!running) return;
-      running = false;
-      if (rafId) cancelAnimationFrame(rafId);
-      if (stream) stream.getVideoTracks().forEach((t) => (t.enabled = false));
-      pausedBanner.style.display = "block";
-    }
-
-    function resumeAll() {
-      if (running || !video) return;
-      if (stream) stream.getVideoTracks().forEach((t) => (t.enabled = true));
-      pausedBanner.style.display = "none";
-      running = true;
-      lastVideoTime = -1;
-      rafId = requestAnimationFrame(renderLoop);
-    }
-
-    document.addEventListener("visibilitychange", () => {
-      document.hidden ? pauseAll() : resumeAll();
-    });
 
     function setupControls() {
       const strip = document.getElementById("product-strip");
@@ -732,12 +580,8 @@
       <div class="spinner"></div>
       <p id="loader-text">Preparing virtual try-on…</p>
       <button class="action-btn" id="start-btn">Start Camera</button>
-      <button class="action-btn" id="retry-btn" style="display:none;">Retry</button>
       <p id="error-log"></p>
     </div>
-
-    <div id="paused-banner">Paused — tab in background</div>
-    <div id="face-hint">Center your face in the frame</div>
 
     <div id="viewport">
       <video id="webcam" playsinline autoplay muted></video>
