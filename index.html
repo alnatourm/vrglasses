@@ -132,15 +132,14 @@
 
     const smoothPos = new THREE.Vector3();
     const smoothQuat = new THREE.Quaternion();
-    let smoothScale = 1.0;
     let isFirst = true;
 
     function initThree() {
       const canvas = document.getElementById("three-canvas");
       scene = new THREE.Scene();
 
-      camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
-      camera.position.set(0, 0, 3.5);
+      camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000);
+      camera.position.set(0, 0, 0);
 
       renderer = new THREE.WebGLRenderer({
         canvas,
@@ -152,29 +151,22 @@
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
       scene.add(new THREE.AmbientLight(0xffffff, 1.8));
-      const dirLight = new THREE.DirectionalLight(0xffffff, 1.8);
-      dirLight.position.set(1.5, 3, 3);
+      const dirLight = new THREE.DirectionalLight(0xffffff, 2.0);
+      dirLight.position.set(1.5, 3, 2.5);
       scene.add(dirLight);
 
-      // Root tracked head anchor
       headGroup = new THREE.Group();
       scene.add(headGroup);
 
-      // -------------------------------------------------------------
-      // DEPTH-ONLY HEAD OCCLUDER
-      // Writes to Z-buffer only: cuts off temple arms behind ears
-      // -------------------------------------------------------------
-      const occluderGeo = new THREE.SphereGeometry(0.88, 32, 24);
-      occluderGeo.scale(0.82, 1.1, 1.0);
-
+      // Occluder: Flat rear plane placed strictly behind ears (Z = -0.7)
+      // Never touches or clips the nose bridge or front lenses
+      const occluderGeo = new THREE.BoxGeometry(1.6, 1.8, 0.8);
       const occluderMat = new THREE.MeshBasicMaterial({
-        colorWrite: false, // Don't render color
-        depthWrite: true   // Do block anything behind it
+        colorWrite: false,
+        depthWrite: true
       });
-
       occluderMesh = new THREE.Mesh(occluderGeo, occluderMat);
-      // Sits back behind the eye plane so the front frames never get cut
-      occluderMesh.position.set(0, -0.1, -0.75);
+      occluderMesh.position.set(0, 0, -0.9);
       occluderMesh.renderOrder = 0;
       headGroup.add(occluderMesh);
 
@@ -215,29 +207,28 @@
         depthWrite: false
       });
 
-      const eyeSep = 0.36;
-      const rimRadius = 0.23;
-      const rimThickness = 0.022;
+      const eyeSep = 0.32;
+      const rimRadius = 0.22;
+      const rimThickness = 0.02;
 
       // Central Nose Bridge
-      const bridgeGeo = new THREE.CylinderGeometry(rimThickness * 0.7, rimThickness * 0.7, eyeSep * 0.85, 16);
+      const bridgeGeo = new THREE.CylinderGeometry(rimThickness * 0.75, rimThickness * 0.75, eyeSep * 0.8, 16);
       bridgeGeo.rotateZ(Math.PI / 2);
       const bridge = new THREE.Mesh(bridgeGeo, frameMat);
       bridge.position.set(0, 0, 0);
       root.add(bridge);
 
       if (cfg.style === "aviator") {
-        const topBar = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.014, 0.016), frameMat);
-        topBar.position.set(0, 0.12, 0);
+        const topBar = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.014, 0.016), frameMat);
+        topBar.position.set(0, 0.11, 0);
         root.add(topBar);
       }
 
-      // Left & Right Lenses and Rims
       [-eyeSep, eyeSep].forEach((x) => {
         let rimGeo, lensGeo;
 
         if (cfg.style === "aviator") {
-          rimGeo = new THREE.TorusGeometry(rimRadius, 0.016, 12, 36);
+          rimGeo = new THREE.TorusGeometry(rimRadius, 0.015, 12, 36);
           lensGeo = new THREE.CircleGeometry(rimRadius * 0.95, 32);
         } else if (cfg.style === "square") {
           rimGeo = new THREE.TorusGeometry(rimRadius, rimThickness, 14, 36);
@@ -260,25 +251,25 @@
         root.add(lens);
       });
 
-      // Frame Temples: Extrude strictly into NEGATIVE Z (backwards toward ears)
-      const armLen = 1.5;
+      // Temples: Extrude back into -Z toward ears
+      const armLen = 1.45;
       const armGeo = new THREE.BoxGeometry(0.016, 0.024, armLen);
       const armOffset = eyeSep + rimRadius;
 
-      // Left Temple (angles slightly down and back into -Z)
       const leftArm = new THREE.Mesh(armGeo, frameMat);
-      leftArm.position.set(-armOffset, -0.04, -armLen / 2);
-      leftArm.rotation.x = -0.05;
-      leftArm.rotation.y = 0.04;
+      leftArm.position.set(-armOffset, -0.025, -armLen / 2);
+      leftArm.rotation.x = -0.04;
+      leftArm.rotation.y = 0.03;
       root.add(leftArm);
 
-      // Right Temple
       const rightArm = new THREE.Mesh(armGeo, frameMat);
-      rightArm.position.set(armOffset, -0.04, -armLen / 2);
-      rightArm.rotation.x = -0.05;
-      rightArm.rotation.y = -0.04;
+      rightArm.position.set(armOffset, -0.025, -armLen / 2);
+      rightArm.rotation.x = -0.04;
+      rightArm.rotation.y = -0.03;
       root.add(rightArm);
 
+      // Calibrated offset so the frames rest on the bridge of the nose
+      root.position.set(0, -0.02, 0.22);
       glassesContainer.add(root);
     }
 
@@ -293,6 +284,7 @@
           delegate: "GPU"
         },
         runningMode: "VIDEO",
+        outputFacialTransformationMatrixes: true,
         numFaces: 1
       });
 
@@ -315,75 +307,41 @@
     }
 
     let lastVideoTime = -1;
+    const rawMatrix = new THREE.Matrix4();
+    const mirrorMatrix = new THREE.Matrix4().makeScale(-1, 1, 1);
+    const tmpPos = new THREE.Vector3();
+    const tmpQuat = new THREE.Quaternion();
+    const tmpScale = new THREE.Vector3();
 
     function renderLoop() {
       if (video && video.readyState >= 2 && video.currentTime !== lastVideoTime) {
         lastVideoTime = video.currentTime;
         const results = faceLandmarker.detectForVideo(video, performance.now());
 
-        if (results.faceLandmarks && results.faceLandmarks.length > 0) {
-          const lms = results.faceLandmarks[0];
+        if (results.facialTransformationMatrixes && results.facialTransformationMatrixes.length > 0) {
+          const matrixData = results.facialTransformationMatrixes[0].data;
+          rawMatrix.fromArray(matrixData);
 
-          // Key Landmarks
-          const pBridge = lms[168];     // Saddle of nose between eyes
-          const pLeftEye = lms[33];      // Left eye outer corner
-          const pRightEye = lms[263];    // Right eye outer corner
-          const pForehead = lms[10];     // Forehead
+          // Correct mirrored camera space
+          const targetMatrix = new THREE.Matrix4();
+          targetMatrix.copy(rawMatrix);
+          targetMatrix.multiplyMatrices(mirrorMatrix, targetMatrix);
+          targetMatrix.decompose(tmpPos, tmpQuat, tmpScale);
 
-          // Perspective Viewport Space
-          const zCam = 3.5;
-          const vFOV = THREE.MathUtils.degToRad(camera.fov);
-          const visibleHeight = 2 * Math.tan(vFOV / 2) * zCam;
-          const visibleWidth = visibleHeight * camera.aspect;
-
-          const targetX = -(pBridge.x - 0.5) * visibleWidth;
-          const targetY = -(pBridge.y - 0.5) * visibleHeight - 0.05; 
-          const targetZ = zCam - 3.5 - (pBridge.z * 1.5) + 0.06;
-
-          // Basis Vectors
-          // X: From left eye to right eye
-          const vecX = new THREE.Vector3(
-            -(pRightEye.x - pLeftEye.x) * visibleWidth,
-            -(pRightEye.y - pLeftEye.y) * visibleHeight,
-            -(pRightEye.z - pLeftEye.z) * 2.0
-          ).normalize();
-
-          // Y: From bridge UP to forehead
-          const vecY = new THREE.Vector3(
-            -(pForehead.x - pBridge.x) * visibleWidth,
-            -(pForehead.y - pBridge.y) * visibleHeight,
-            -(pForehead.z - pBridge.z) * 2.0
-          ).normalize();
-
-          // Z: Normal vector pointing STRAIGHT OUT of face toward camera (+Z)
-          const vecZ = new THREE.Vector3().crossVectors(vecX, vecY).normalize();
-          const correctedY = new THREE.Vector3().crossVectors(vecZ, vecX).normalize();
-
-          // Construct Rotation Matrix (Front = +Z, Temples reach into -Z)
-          const rotMatrix = new THREE.Matrix4().makeBasis(vecX, correctedY, vecZ);
-          const targetQuat = new THREE.Quaternion().setFromRotationMatrix(rotMatrix);
-
-          // Real-time Pupillary Span Scale
-          const eyeSpan = Math.hypot(
-            (pRightEye.x - pLeftEye.x) * visibleWidth,
-            (pRightEye.y - pLeftEye.y) * visibleHeight
-          );
-          const targetScale = eyeSpan * 0.95;
+          // Metric centimeter conversion
+          tmpPos.multiplyScalar(0.08);
 
           if (isFirst) {
-            smoothPos.set(targetX, targetY, targetZ);
-            smoothQuat.copy(targetQuat);
-            smoothScale = targetScale;
+            smoothPos.copy(tmpPos);
+            smoothQuat.copy(tmpQuat);
             isFirst = false;
           } else {
-            smoothPos.lerp(new THREE.Vector3(targetX, targetY, targetZ), 0.5);
-            smoothQuat.slerp(targetQuat, 0.55);
-            smoothScale += (targetScale - smoothScale) * 0.45;
+            smoothPos.lerp(tmpPos, 0.45);
+            smoothQuat.slerp(tmpQuat, 0.5);
           }
 
           headGroup.position.copy(smoothPos);
           headGroup.quaternion.copy(smoothQuat);
-          headGroup.scale.setScalar(smoothScale);
           headGroup.visible = true;
         } else {
           headGroup.visible = false;
@@ -444,7 +402,7 @@
   <div id="vto-root">
     <div id="loader">
       <div class="spinner"></div>
-      <p id="loader-text">Calibrating 3D Pose...</p>
+      <p id="loader-text">Loading 3D Optics...</p>
     </div>
 
     <video id="webcam" playsinline autoplay muted></video>
